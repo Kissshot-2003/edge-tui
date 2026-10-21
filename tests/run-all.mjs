@@ -31,6 +31,7 @@ const SUITES = [
   { name: "test-keys", tag: "核心" },
   { name: "test-cdp", tag: "核心" },
   { name: "test-tabs", tag: "核心" },
+  { name: "test-history", tag: "核心" },
   { name: "test-vp", tag: "核心" },
   { name: "test-input", tag: "核心", live: "example" },
   { name: "test-ansi-integrity", tag: "核心", live: "example" },

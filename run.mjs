@@ -650,6 +650,30 @@ function textPageRows(pc, pr) {
   return res.rows
 }
 
+// ── 加载失败（导航失败）时的页面区 ──
+//
+// 为什么不直接显示 Chrome 的错误页内容：抓回来只有「无法访问此网站」那几行，
+// 而用户真正需要知道的是**现在该怎么办** —— 返回 / 重试 / 换地址。
+// 失败页尤其要写清楚「按 b 能回去」，因为人在这一刻最想做的就是回去。
+function navFailRows(pc, pr) {
+  const out = []
+  const nf = navFailed || {}
+  const lines = [
+    { t: " ✖ 无法访问 " + safeHost(nf.url || ""), fg: C.err },
+    { t: "   " + (nf.reason || "未知错误") + (nf.url ? `  ${nf.url}` : ""), fg: C.dim },
+    { t: "   按 b / Backspace 返回 · 按 r 重试 · 按 o 换个地址 · 按 /his 看历史", fg: C.cyan },
+  ]
+  for (let i = 0; i < pr; i++) {
+    const l = lines[i]
+    const t = l ? truncateByWidth(l.t, pc) : ""
+    const w = strWidth(t)
+    const row = l ? [{ t, fg: l.fg, bg: C.bg, w }] : []
+    if (w < pc) row.push({ t: " ".repeat(pc - w), fg: C.text, bg: C.bg, w: pc - w })
+    out.push(row)
+  }
+  return out
+}
+
 // ── 抓页失败时的页面区 ──
 // **不能用旧画面顶替**。实盘事故：run.mjs 漏导入 applyFoldState，
 // captureText 每次都抛异常，而 catch 只更新状态栏、页面区照旧渲染
@@ -807,6 +831,7 @@ function buildRows() {
   // ④ 页面区
   const pr = PAGE_ROWS(), pc = PAGE_COLS()
   const pageRows = captureError ? errorPageRows(pc, pr)
+    : navFailed ? navFailRows(pc, pr)
     : mode === "list" ? listPageRows(pc, pr)
     : renderMode === "text" ? textPageRows(pc, pr) : gridPageRows(pc, pr)
   for (let r = 0; r < pr; r++) {
@@ -1091,11 +1116,18 @@ async function capture(resetScroll = false) {
     scrollYPx = sp?.y || 0
     if (sp) scrollHost = sp.host
 
-    const applied = renderMode === "text"
-      ? await captureText(pc, pr, seq, myTab)
-      : await captureGrid(pc, pr, myTab)
-    if (applied === null) return   // 被更新的抓取取代：交给它
-    if (applied === false) return  // 标签页已切换：这次作废
+    if (navFailed) {
+      // 失败页**不抓**：Chrome 错误页的内容对用户没有价值（就是"无法访问"四个字），
+      // 真正该显示的是「返回 / 重试 / 换地址」这些操作指引。
+      textPage = null; textRows = null; mapLine = null; grid = null
+      textTotalRows = 0
+    } else {
+      const applied = renderMode === "text"
+        ? await captureText(pc, pr, seq, myTab)
+        : await captureGrid(pc, pr, myTab)
+      if (applied === null) return   // 被更新的抓取取代：交给它
+      if (applied === false) return  // 标签页已切换：这次作废
+    }
     if (seq !== renderSeq) return   // 已被更新的渲染取代
     // 重抓之后排版行号全部变了：查找高亮必须清掉（否则高亮落在错误的内容上）
     findHits = []
@@ -1165,7 +1197,7 @@ function safeHost(u) {
 
 function captureQualityNote() {
   const parts = []
-  if (navFailed) parts.push(`无法访问 ${safeHost(navFailed.url)}（${navFailed.reason}）· r 重试`)
+  if (navFailed) parts.push(`无法访问 ${safeHost(navFailed.url)}（${navFailed.reason}）· b 返回 · r 重试`)
   if (navState?.errorText && !/^net::ERR_ABORTED$/.test(navState.errorText)) {
     parts.push(`导航失败：${navState.errorText}`)
   }
@@ -1756,6 +1788,18 @@ function stampFindOverlay() {
 }
 
 // ── 按键处理 ──
+
+/**
+ * 这个按键是不是「要当成普通文字」的？
+ *
+ * 解码层现在会产出**带修饰键**的 char 事件（Ctrl+A、Ctrl+W…）。
+ * 它们**不是文字** —— 不挡掉的话，Ctrl+A 会在输入框里打出一个字面量 "a"，
+ * 页面输入模式更是会把 Ctrl+A 当成「选中全部 + 打了个 a」。
+ */
+function isPlainChar(key) {
+  return key.name === "char" && key.sequence >= " " && !key.ctrl && !key.alt
+}
+
 function handleKey(key) {
   if (mode === "pick") {
     if (key.name === "escape") {
@@ -1837,7 +1881,7 @@ function handleKey(key) {
       return
     }
     if (key.name === "backspace") { inputValue = inputValue.slice(0, -1); paint(); return }
-    if (key.name === "char" && key.sequence >= " ") { inputValue += key.sequence; paint() }
+    if (isPlainChar(key)) { inputValue += key.sequence; paint() }
     return
   }
 
@@ -1892,7 +1936,7 @@ function handleKey(key) {
     // 拼音首字母里 c/e/s/h/i 恰好都是快捷键，e 会去展开折叠、h 会直接后退一页。
     // 症状就是"按 i 之后打的头几个字跑到别的地方去了"。
     if (inputPending) {
-      if (key.name === "char" && key.sequence >= " ") pendingKeys.push({ kind: "char", ch: key.sequence })
+      if (isPlainChar(key)) pendingKeys.push({ kind: "char", ch: key.sequence })
       else if (key.name === "backspace") pendingKeys.push({ kind: "backspace" })
       else if (key.name === "return") pendingKeys.push({ kind: "return" })
       paint()
@@ -1939,7 +1983,9 @@ function handleKey(key) {
     // Ctrl 组合进页面（Ctrl+C 全局退出 / Ctrl+V 粘贴另有通道，不在这里）：
     // Ctrl+A 全选、Ctrl+Z 撤销 —— 富文本/多行输入必备
     if (key.ctrl && /^(a|z)$/.test(key.sequence || "")) {
-      tab.pressCombo(key.name, 2).then(() => scheduleShot(200)).catch(() => {})
+      // ⚠️ pressCombo 要的是**字母本身**（"a"/"z"），不是 key.name
+      // （key.name 是 "char"）—— 传错的话 pressCombo 查表查不到，直接静默返回。
+      tab.pressCombo(key.sequence, 2).then(() => scheduleShot(200)).catch(() => {})
       return
     }
     // Tab：换到下一个控件（页面原生 Tab 顺序），换完按 data-etui-field 反查是谁，
@@ -1969,7 +2015,7 @@ function handleKey(key) {
       }).catch(() => {})
       return
     }
-    if (key.name === "char" && key.sequence >= " ") {
+    if (isPlainChar(key)) {
       // 只重绘，不整页重抓 —— 见 syncActiveField 的注释
       typeIntoField(key.sequence)
     }
@@ -2000,7 +2046,7 @@ function handleKey(key) {
       return
     }
     if (key.name === "backspace") { inputValue = inputValue.slice(0, -1); paint(); return }
-    if (key.name === "char" && key.sequence >= " ") {
+    if (isPlainChar(key)) {
       inputValue += key.sequence
       paint()
     }
@@ -2517,8 +2563,14 @@ function prevPage() {
   pageEcho = ""
   captureError = null
   elsCacheKey = null
-  tab.history("Page.goBack")
-    .then(() => capture(true))
+  tab.history(-1)
+    .then((u) => capture(true).then(() => {
+      // 说清楚「退到哪一页了」—— 否则用户按了后退只看到状态栏变"就绪"，
+      // 分不清是退回去了还是根本没反应。
+      statusKind = "ok"
+      status = `← 已返回 · ${u}`
+      paint()
+    }))
     .catch((e) => { statusKind = "err"; status = String(e?.message || e); paint() })
 }
 
@@ -2531,8 +2583,12 @@ function nextPage() {
   pageEcho = ""
   captureError = null
   elsCacheKey = null
-  tab.history("Page.goForward")
-    .then(() => capture(true))
+  tab.history(1)
+    .then((u) => capture(true).then(() => {
+      statusKind = "ok"
+      status = `→ 已前进 · ${u}`
+      paint()
+    }))
     .catch((e) => { statusKind = "err"; status = String(e?.message || e); paint() })
 }
 
@@ -3260,7 +3316,7 @@ export const __test = {
     return { pageRows: pageRows ?? (termLike ? PAGE_ROWS() : 0) }
   },
   state: () => ({ renderMode, textRowOffset, textTotalRows, hasPage: !!textPage,
-    findQuery, findHits: findHits.length, findCur }),
+    findQuery, findHits: findHits.length, findCur, mode, inputValue }),
   runFind,
   findNext,
   clearFind,
@@ -3268,6 +3324,9 @@ export const __test = {
   rerenderText,
   redraw,
   refreshPicker,
+  // 直接驱动按键处理：验证「按 Ctrl+Tab 真的切了标签页」这一整条链路
+  // （按键 → 解码 → handleKey → 切页），而不只是测切页函数本身。
+  handleKey,
   // ── 多标签页的测试钩子 ──
   // 用假的 tab 替身驱动标签逻辑（不开真浏览器）：
   // 切标签是纯内存操作，测它不需要真的开页面。

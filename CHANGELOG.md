@@ -18,8 +18,8 @@
   - 上限 12 个标签页。
 - `--user-agent=UA`：伪装 UA，绕开 headless 下部分站点的降级（必应返回精简版首页）。
 - `LICENSE`（MIT 正文，之前 README 声明了 MIT 但仓库里没有许可证文件）。
-- `tests/test-tabs.mjs`：多标签页回归（CDP 开/关页面 · 修饰键解码 · 各页状态隔离），
-  已并入 `tests/run-all.mjs`。
+- `tests/test-tabs.mjs`：多标签页回归（CDP 开/关页面 · 修饰键解码 · 各页状态隔离 ·
+  按键→切页整条链路），40 条断言，已并入 `tests/run-all.mjs`。
 
 ### Changed
 
@@ -35,8 +35,22 @@
 
 ### Fixed
 
+- **后退 / 前进从来没生效过**。CDP 协议里**没有** `Page.goBack` / `Page.goForward`
+  这两个方法（历史上就是这么写的），于是每次调用都报
+  `'Page.goBack' wasn't found`，错误又被 `.catch()` 吞进状态栏 ——
+  用户只看到「按了没反应」，**加载失败之后更是完全无路可退**。
+  现在改用 `Page.getNavigationHistory` + `Page.navigateToHistoryEntry`，
+  并在退到头 / 进到头时给出人话提示（「没有更早的页面了」）。
+- **加载失败时不再显示 Chrome 的错误页内容**（抓回来只有「无法访问此网站」几个字），
+  改为自绘一页：写明原因、失败地址，以及**「按 b / Backspace 返回」**
+  —— 人在这一刻最想做的就是回去。
+- 后退 / 前进之后，状态栏会报出退到了哪一页（`← 已返回 · <url>`），
+  不再只是笼统的「就绪」。
 - 输入模式里的 `Ctrl+A`（全选）/ `Ctrl+Z`（撤销）此前因判断了 `key.name`
-  （实际是 `"char"`，值在 `key.sequence`）而**永远不生效**。
+  （实际是 `"char"`，值在 `key.sequence`）而**永远不生效**；
+  `pressCombo` 也传错了参数（要字母本身，不是 `"char"`）。
+- 解码层开始产出带修饰键的 char 事件后，**带 Ctrl/Alt 的字符不再被当成文字**
+  （`isPlainChar`）：否则 `Ctrl+A` 会在输入框里打出一个字面量 "a"。
 - `tests/test-noreload.mjs` 不再把 chrome 行数抄一遍（页面区高度一变就错位，
   失败原因还跟被测行为无关），改为使用导出的 `PAGE_ROWS()` / `CHROME_ROWS` / `FOOT_ROWS`。
 
@@ -44,6 +58,8 @@
 
 - 清理调试产物：`crash.log`、`demo-snapshot.txt`、`_s.bin`、`_s.err`
   （并加入 `.gitignore`）。
+- **纳入版本控制**：此前这个项目有 3600+ 行代码却**零版本控制**。
+  现在已 `git init` 并提交首个版本。
 
 ## [1.3.0] - 2026-09-28
 

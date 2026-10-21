@@ -897,6 +897,9 @@ ink = (ink - 0.10) * contrast + 0.02
   会各占一份渲染进程与一份内存里的排版结果（长文档页面尤其明显）。
   标签页之间的切换是纯内存操作，但**后台标签页不会自动降载**（不释放截图与排版）。
 - **多标签页不跨进程共享登录态以外的东西**：书签与历史仍是全局的（共用一份 JSON）。
+- **切回后台标签页不会自动重新抓取**：显示的是它离开时的样子。
+  后台标签页不加载、不刷新（和真实浏览器的懒加载策略一致，但和它不同 ——
+  真实浏览器会在你切回去时重绘，这里是直接拿内存里那份快照重绘）。
 - **纯文本终端不支持 24-bit 色**时会退化成近似色。建议 Windows Terminal、
   WezTerm、iTerm2 等现代终端。
 - **`run.mjs` 需要真实 TTY**。stdin 是管道时 `setRawMode` 不可用，
@@ -943,6 +946,8 @@ node tests/run-all.mjs --force-live test-zhihu-fix   # 无视环境探测强行�
 ```bash
 node tests/test-imports.mjs          # 静态导入检查：抓「调用了但没导入」的死循环（快）
 node tests/test-cdp.mjs              # CDP 连通性冒烟
+node tests/test-tabs.mjs             # 多标签页：CDP 开/关页面 · 修饰键解码 · 各页状态隔离
+node tests/test-history.mjs           # 浏览器历史：后退/前进（含"加载失败后仍能回退"）
 node tests/test-term.mjs             # ANSI 渲染器
 node tests/test-input.mjs            # 页面表单输入交互
 node tests/test-vp.mjs               # 视口与网格对齐

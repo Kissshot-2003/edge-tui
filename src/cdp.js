@@ -410,10 +410,30 @@ export class EdgeTab {
     return this.evalJs("({u: location.href, t: document.title, sh: document.documentElement.scrollHeight})")
   }
 
-  async history(op) {
-    await this.conn.send(op) // Page.goBack / Page.goForward
-    await new Promise((r) => setTimeout(r, 800))
+  /**
+   * 后退 / 前进。
+   *
+   * ⚠️ **CDP 里没有 `Page.goBack` / `Page.goForward` 这两个方法**。
+   * 历史上这里写的就是这两个不存在的名字，于是每次调用都报
+   * "'Page.goBack' wasn't found" —— 也就是说**这个功能从来没生效过**，
+   * 而错误被 catch 吞进状态栏，用户只看到"按了没反应"。
+   *
+   * 正确做法：先取历史列表（Page.getNavigationHistory），再跳到相邻条目
+   *（Page.navigateToHistoryEntry）。
+   *
+   * @param {number} step -1 后退 / +1 前进
+   */
+  async history(step) {
+    const h = await this.conn.send("Page.getNavigationHistory")
+    const idx = h.currentIndex + step
+    if (idx < 0 || idx >= h.entries.length) {
+      throw new Error(step < 0 ? "没有更早的页面了" : "没有更晚的页面了")
+    }
+    const entry = h.entries[idx]
+    await this.conn.send("Page.navigateToHistoryEntry", { entryId: entry.id })
+    await new Promise((r) => setTimeout(r, 400))
     await this.settle()
+    return entry.url
   }
 
   /**

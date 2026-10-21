@@ -175,5 +175,61 @@ console.log("\n── ③ 状态：切标签不串页 ──")
     T.titles().join("|"))
 }
 
+// ── ④ 按键 → 切页：整条链路 ──
+console.log("\n── ④ 按键真的能切标签页 ──")
+{
+  const { __test } = await import("../run.mjs")
+  const T = __test.tabState
+  __test.install({
+    tabLike: { id: "A" },
+    page: null,
+    totalRows: 0,
+    termLike: { width: 80, height: 30, render() {}, clear() {}, destroy() {} },
+  })
+  T.seed([
+    { tab: { id: "A" }, title: "页面 A", url: "https://a.test/" },
+    { tab: { id: "B" }, title: "页面 B", url: "https://b.test/" },
+    { tab: { id: "C" }, title: "页面 C", url: "https://c.test/" },
+  ])
+
+  // Ctrl+Tab → 下一个
+  __test.handleKey({ name: "tab", ctrl: true })
+  ok("Ctrl+Tab 切到下一个标签页", T.active() === 1, `active=${T.active()}`)
+  ok("切过去后标题是那一页的", T.activeTitle() === "页面 B", T.activeTitle())
+
+  // Ctrl+Shift+Tab → 上一个
+  __test.handleKey({ name: "tab", ctrl: true, shift: true })
+  ok("Ctrl+Shift+Tab 切回上一个", T.active() === 0, `active=${T.active()}`)
+
+  // Ctrl+3 → 直跳第 3 个
+  __test.handleKey({ name: "char", sequence: "3", ctrl: true })
+  ok("Ctrl+3 直跳到第 3 个", T.active() === 2, `active=${T.active()}`)
+
+  // Ctrl+0 → 第 10 个（只有 3 个时应当无效，而不是跳到第 0 个）
+  __test.handleKey({ name: "char", sequence: "0", ctrl: true })
+  ok("Ctrl+0 在没有第 10 个标签页时不乱跳", T.active() === 2, `active=${T.active()}`)
+
+  // 单键退路
+  __test.handleKey({ name: "char", sequence: "]" })
+  ok("单键 ] 轮换到下一个（环绕到第 1 个）", T.active() === 0, `active=${T.active()}`)
+  __test.handleKey({ name: "char", sequence: "2" })
+  ok("单键 2 直跳到第 2 个", T.active() === 1, `active=${T.active()}`)
+
+  // 单键 w 关闭
+  const before = T.count()
+  __test.handleKey({ name: "char", sequence: "w" })
+  ok("单键 w 关闭当前标签页", T.count() === before - 1, `${before} → ${T.count()}`)
+
+  // Ctrl+字母**不是文字**：不能漏进输入框
+  __test.handleKey({ name: "char", sequence: "o" })
+  ok("按 o 进入地址栏输入模式", __test.state().mode === "goto", __test.state().mode)
+  __test.handleKey({ name: "char", sequence: "a", ctrl: true })
+  ok("Ctrl+A 不会把 'a' 打进输入框", __test.state().inputValue === "",
+    JSON.stringify(__test.state().inputValue))
+  __test.handleKey({ name: "char", sequence: "x" })
+  ok("普通字符照常进入输入框", __test.state().inputValue === "x",
+    JSON.stringify(__test.state().inputValue))
+}
+
 console.log(`\n══ 结果：${pass} 通过 / ${fail} 失败 ══`)
 process.exit(fail ? 1 : 0)
