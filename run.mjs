@@ -222,6 +222,7 @@ let viewH = 600            // 视口 CSS 高度
 let viewW = 900            // 视口 CSS 宽度
 let mode = "normal"        // normal | goto | cmd | pageinput | pick | find | list
 let inputValue = ""
+let inputSelectAll = false   // 地址栏「全选待替换」：打完第一个字就覆盖整个网址
 let status = "正在启动 Edge…"
 let statusKind = "info"    // info | ok | err | busy
 let focusInfo = null
@@ -425,6 +426,52 @@ function cycleTab(dir) {
   switchTab((activeTab + dir + n) % n)
 }
 
+/**
+ * 把一个已经建好的页面（新建的 / 从浏览器收编来的）加进标签页列表并切过去。
+ */
+function pushTab(created) {
+  tab = created.tab
+  currentTargetId = created.targetId
+  resetTabGlobals()
+  tabStates.push(snapshotTabState())
+  tabMeta.push({ title: "", url: "" })
+  activeTab = tabStates.length - 1
+  syncTabMeta()
+}
+
+/**
+ * 站点自己开出来的窗口（window.open 等）→ 收编成新标签页。
+ *
+ * 真浏览器里这会开一个新标签页；以前我们管不了（只有一个 tab），
+ * 只能眼睁睁看着它在后台开一个我们管不到的窗口 —— 用户看到的是"点了没反应"。
+ */
+async function adoptTab(created) {
+  saveActiveTabState()
+  pushTab(created)
+  statusKind = "busy"
+  status = "站点开出了新窗口 → 已收编为新标签页"
+  paint()
+  await capture(true)
+}
+
+/**
+ * 点击前先问一句：这个链接会不会开新窗口？会的话**我们自己开成新标签页**。
+ *
+ * 比"让浏览器去开、我们再去接管"更稳：不用等浏览器的窗口事件，
+ * 也不会漏掉被拦掉的弹窗。而且当前页面保持不动 —— 和真浏览器一致。
+ */
+async function openInNewTabIfNeeded(idx) {
+  if (idx == null || idx < 0) return false
+  try {
+    const info = await tab.probeNewWindow(idx)
+    if (!info?.newWindow || !info.url) return false
+    await newTab(info.url)
+    return true
+  } catch {
+    return false   // 探测失败就按老路走（当前标签打开），别把点击弄没了
+  }
+}
+
 /** 新建标签页 */
 async function newTab(url) {
   if (!edge?.newPage) {
@@ -447,13 +494,7 @@ async function newTab(url) {
     paint()
     return
   }
-  tab = created.tab
-  currentTargetId = created.targetId
-  resetTabGlobals()
-  tabStates.push(snapshotTabState())
-  tabMeta.push({ title: "", url: "" })
-  activeTab = tabStates.length - 1
-  syncTabMeta()
+  pushTab(created)
   if (url) {
     await goto(url)
   } else {
@@ -462,7 +503,6 @@ async function newTab(url) {
     paint()
   }
 }
-
 /** 关闭标签页 */
 function closeTab(i) {
   if (i < 0 || i >= tabStates.length) return
@@ -516,13 +556,7 @@ async function reopenTab() {
     paint()
     return
   }
-  tab = created.tab
-  currentTargetId = created.targetId
-  resetTabGlobals()
-  tabStates.push(snapshotTabState())
-  tabMeta.push({ title: "", url: "" })
-  activeTab = tabStates.length - 1
-  syncTabMeta()
+  pushTab(created)
   if (s.url) await goto(s.url)
   else paint()
 }
@@ -671,6 +705,61 @@ function textPageRows(pc, pr) {
   return res.rows
 }
 
+// ── 完整按键帮助 ──
+//
+// 以前按 ? 只在提示行多出一长串字 —— 一屏放不下，滚也滚不到，
+// 等于"记不住快捷键"。现在按 ? 直接铺满整个页面区，能上下翻。
+const HELP_ITEMS = [
+  ["j / k / ↓ / ↑", "上下滚动"],
+  ["d / u", "上下半页"],
+  ["g / G / Home / End", "跳到页首 / 页尾"],
+  ["o  或  Ctrl+L", "地址栏：输入网址或搜索词（Ctrl+L 会带出当前网址）"],
+  ["r  或  Ctrl+R", "刷新当前页"],
+  ["b / ← / Backspace", "后退（会恢复上一页的滚动位置）"],
+  ["f / →", "前进"],
+  ["/  或  Ctrl+F", "页内查找 · n / N 在命中间跳转"],
+  ["B  或  Ctrl+D", "收藏当前页"],
+  ["/bm", "书签列表"],
+  ["/his", "历史列表"],
+  ["i", "输入模式：打字直接进页面控件"],
+  ["v", "元素清单：↑↓ 选择 · Enter 真实点击"],
+  ["e / E", "展开折叠内容 / 真去点页面上的展开控件"],
+  ["m", "切换文字模式 / 图片模式"],
+  ["Tab", "在链接与表单之间循环聚焦"],
+  ["t  或  Ctrl+T", "新建标签页"],
+  ["w  或  Ctrl+W", "关闭当前标签页"],
+  ["T  或  Ctrl+Shift+T", "重开最近关闭的标签页"],
+  ["[ / ]  或  Ctrl+Tab", "上一个 / 下一个标签页"],
+  ["1…9 / 0  或  Ctrl+1…9", "直跳到第 n 个标签页"],
+  [":", "命令模式：/reload /back /forward /text /image /mouse …"],
+  ["?", "开关本帮助"],
+  ["q / Ctrl+C", "退出"],
+]
+let helpOffset = 0
+
+function helpPageRows(pc, pr) {
+  const out = []
+  const bodyRows = Math.max(1, pr - 1)
+  const maxOff = Math.max(0, HELP_ITEMS.length - bodyRows)
+  helpOffset = Math.max(0, Math.min(maxOff, helpOffset))
+  const push = (t, fg) => {
+    const w = strWidth(t)
+    const row = [{ t, fg, bg: C.bg, w }]
+    if (w < pc) row.push({ t: " ".repeat(pc - w), fg: C.text, bg: C.bg, w: pc - w })
+    out.push(row)
+  }
+  push(truncateByWidth(
+    ` 按键说明 ${helpOffset + 1}-${Math.min(HELP_ITEMS.length, helpOffset + bodyRows)}/${HELP_ITEMS.length} · j/k 翻页 · ? 或 Esc 关闭 `, pc), C.gold)
+  for (let i = 0; i < bodyRows; i++) {
+    const it = HELP_ITEMS[helpOffset + i]
+    if (!it) { push(""); continue }
+    const keyW = Math.min(22, Math.max(10, pc - 24))
+    const k = truncateByWidth(it[0], keyW).padEnd(keyW)
+    push(truncateByWidth(k + "  " + it[1], pc), C.cyan)
+  }
+  return out
+}
+
 // ── 加载失败（导航失败）时的页面区 ──
 //
 // 为什么不直接显示 Chrome 的错误页内容：抓回来只有「无法访问此网站」那几行，
@@ -811,7 +900,11 @@ function buildRows() {
     { t: modeTag, fg: renderMode === "text" ? C.purple : C.weak, bg: C.chrome, w: strWidth(modeTag) },
   ]
   const headLeftW = 3 + name.length + strWidth(modeTag)
-  const posTag = scrollPos === "bottom" ? "底" : scrollPos === "middle" ? "中" : "顶"
+  // 滚动位置：顶/中/底 + 百分比（真浏览器会告诉你"还有多少"）
+  const posLabel = scrollPos === "bottom" ? "底" : scrollPos === "middle" ? "中" : "顶"
+  const pctText = (renderMode === "text" && textTotalRows > 1)
+    ? ` ${Math.round((textRowOffset / Math.max(1, textTotalRows - PAGE_ROWS())) * 100)}%` : ""
+  const posTag = posLabel + pctText
   const posW = strWidth(posTag) + 2
   const room = Math.max(0, w - headLeftW - posW)
   rows.push([
@@ -853,6 +946,7 @@ function buildRows() {
   const pr = PAGE_ROWS(), pc = PAGE_COLS()
   const pageRows = captureError ? errorPageRows(pc, pr)
     : navFailed ? navFailRows(pc, pr)
+    : helpVisible ? helpPageRows(pc, pr)
     : mode === "list" ? listPageRows(pc, pr)
     : renderMode === "text" ? textPageRows(pc, pr) : gridPageRows(pc, pr)
   for (let r = 0; r < pr; r++) {
@@ -949,7 +1043,7 @@ function keyHint(m) {
   if (m === "pick") return "元素清单 · ↑↓/j k 选择 · Enter 点击 · h 悬停 · d 双击 · g 拖拽 · u 上传 · Esc 退出"
   if (m === "list") return (listKind === "bm" ? "书签" : "历史") + " · ↑↓/j k 选择 · Enter 打开 · x 删除 · Esc 退出"
   if (helpVisible) {
-    return "j/k 上下   i 输入框   / 页内查找   B 收藏   /bm 书签   /his 历史   Tab 切换链接   v 元素清单   Backspace/b 后退   f 前进   e 展开折叠   E 点开页面控件   m 换渲染   o 网址   : 命令   r 刷新   t 新标签页   w 关标签页   ]/[ 换标签页   Ctrl+1..9 跳标签   Ctrl+Tab 轮换   ? 收起   q 退出"
+    return "按键说明 · j/k 翻页 · ? 或 Esc 关闭"
   }
   if (m === "pageinput") return "输入模式 · 打字直接进页面 · Enter 提交/回车 · Backspace 退格 · Ctrl+V 粘贴中文最可靠 · ↑↓ 选建议 · Tab 换控件 · Esc 退出"
   return "鼠标: 点链接/控件/折叠 · 滚轮翻页   j/k 滚动   i 输入框   / 查找   B 收藏   Tab 链接   v 元素清单   e 展开折叠   Backspace 后退   Enter 打开   o 网址   t 新标签页   ? 帮助   q 退出"
@@ -1439,6 +1533,14 @@ async function expandOnPage() {
 // 此时 window.scrollBy 完全无效，window.scrollY 永远是 0，页面看起来「不能滚」。
 // 所以每次滚动前先问页面「谁在滚」，再对正确的目标下手。
 async function scrollPx(dy) {
+  // 帮助面板是**在页面区里翻的**，不是滚页面
+  if (helpVisible) {
+    const per = Math.max(1, Math.round(dy / CELL_H))
+    const bodyRows = Math.max(1, PAGE_ROWS() - 1)
+    helpOffset = Math.max(0, Math.min(Math.max(0, HELP_ITEMS.length - bodyRows), helpOffset + per))
+    paint()
+    return
+  }
   if (renderMode === "text") {
     if (!textPage) return
     // 文字模式的滚动是「行级」的：整页**已经在内存里排好版**了
@@ -1823,6 +1925,27 @@ function isPlainChar(key) {
 }
 
 /**
+ * 聚焦地址栏（Ctrl+L）—— 像浏览器那样：把当前网址带出来并全选，
+ * 打完第一个字就把它替换掉。
+ */
+function focusAddressBar() {
+  mode = "goto"
+  inputValue = curUrl || ""
+  inputSelectAll = true
+  statusKind = "info"
+  status = "地址栏 · 直接输入新地址即可覆盖当前网址 · Esc 取消"
+  paint()
+}
+
+/** 刷新当前页 */
+function reload() {
+  statusKind = "busy"
+  status = "正在刷新…"
+  elsCacheKey = null
+  capture(true).catch(() => {})
+}
+
+/**
  * 页面输入相关的异步操作：**出错要说出来**。
  *
  * 这些操作以前全是 `.catch(() => {})` —— 静默失败。
@@ -2072,6 +2195,7 @@ function handleKey(key) {
     if (key.name === "escape") {
       mode = "normal"
       inputValue = ""
+      inputSelectAll = false
       statusKind = "info"
       status = "就绪"
       paint()
@@ -2082,6 +2206,7 @@ function handleKey(key) {
       const wasUpload = mode === "upload"
       mode = "normal"
       inputValue = ""
+      inputSelectAll = false
       if (wasUpload) {
         if (v.trim()) uploadFiles(v.trim())
         else paint()
@@ -2093,7 +2218,13 @@ function handleKey(key) {
     }
     if (key.name === "backspace") { inputValue = inputValue.slice(0, -1); paint(); return }
     if (isPlainChar(key)) {
-      inputValue += key.sequence
+      if (inputSelectAll) {
+        // 地址栏「全选待替换」：第一个字直接把整个网址盖掉（和浏览器一致）
+        inputValue = key.sequence
+        inputSelectAll = false
+      } else {
+        inputValue += key.sequence
+      }
       paint()
     }
     return
@@ -2104,6 +2235,7 @@ function handleKey(key) {
     // 之前没有任何中断手段：一旦某页卡在等子资源/抓图上，只能干等或退出程序。
     case "escape":
       if (busy) stopCapture()
+      else if (helpVisible) { toggleHelp() }
       else if (findHits.length || findQuery) {
         clearFind()
         statusKind = "info"
@@ -2126,6 +2258,11 @@ function handleKey(key) {
         if (key.sequence === "T") { reopenTab().catch(() => {}); break }
         if (key.sequence === "t") { newTab().catch(() => {}); break }
         if (key.sequence === "w" || key.sequence === "W") { closeTab(activeTab); break }
+        // 浏览器习惯键位
+        if (key.sequence === "l" || key.sequence === "L") { focusAddressBar(); break }
+        if (key.sequence === "r" || key.sequence === "R") { reload(); break }
+        if (key.sequence === "f" || key.sequence === "F") { enterFind(); break }
+        if (key.sequence === "d" || key.sequence === "D") { addBookmark(); break }
         if (/^[0-9]$/.test(key.sequence)) {
           // Ctrl+1..9 跳到第 n 个标签页，Ctrl+0 跳到第 10 个
           const n = key.sequence === "0" ? 10 : Number(key.sequence)
@@ -2149,11 +2286,7 @@ function handleKey(key) {
         case "u": scrollPx(-Math.floor(PAGE_ROWS() / 2) * CELL_H); break
         case "g": scrollPx(-100000); break
         case "G": scrollPx(100000); break
-        case "r":
-          statusKind = "busy"; status = "正在刷新…"
-          elsCacheKey = null
-          capture(true)
-          break
+        case "r": reload(); break
         case "i": case "I": enterPageInput(); break
         case "v": case "V": enterPicker(); break
         case "m": case "M": toggleRenderMode(); break
@@ -2212,8 +2345,9 @@ function handleKey(key) {
 
 function toggleHelp() {
   helpVisible = !helpVisible
+  if (helpVisible) helpOffset = 0
   statusKind = "info"
-  status = helpVisible ? "按 ? 收起帮助" : "就绪"
+  status = helpVisible ? "按键说明 · j/k 翻页 · ? 或 Esc 关闭" : "就绪"
   paint()
 }
 
@@ -2852,6 +2986,16 @@ async function pickActivate() {
       try { await tab.scrollElIntoView(pickInfo.i) } catch {}
       await new Promise((r) => setTimeout(r, 90))
     }
+    // target=_blank 的链接 → 开成新标签页（真浏览器的行为），
+    // 当前页面保持不动。
+    if (await openInNewTabIfNeeded(pickInfo.i)) {
+      mode = "normal"
+      pickInfo = null
+      statusKind = "ok"
+      status = "已在新标签页打开"
+      paint()
+      return
+    }
     const box = await tab.clickIndex(pickInfo.i)
     if (!box) {
       statusKind = "err"
@@ -3035,6 +3179,20 @@ async function openBlock(src) {
         // （见 scrollToEl 的注释），所以点击前必须先把它带进视口。
         try { await tab.scrollElIntoView(m.index) } catch {}
         await new Promise((r) => setTimeout(r, 80))
+      }
+      // target=_blank 的链接 → 开成新标签页
+      if (await openInNewTabIfNeeded(m.index)) {
+        mode = "normal"
+        activeField = null
+        pageEcho = ""
+        focusInfo = null
+        pickInfo = null
+        lastVp = null
+        elsCacheKey = null
+        statusKind = "ok"
+        status = "已在新标签页打开"
+        paint()
+        return
       }
       const box = await tab.clickIndex(m.index)
       if (box && !box.offscreen) {
@@ -3309,6 +3467,12 @@ async function main() {
   tabStates.push(snapshotTabState())
   tabMeta.push({ title: "", url: "" })
   activeTab = 0
+  // 站点自己开出来的窗口（window.open 等）→ 收编成新标签页
+  edge.onNewTarget?.((info) => {
+    edge.attachTarget(info.targetId)
+      .then((created) => adoptTab(created))
+      .catch((e) => logErr("adopt:", e?.stack || e))
+  })
   lastVp = PAGE_COLS() + "x" + PAGE_ROWS()
   if (!useTempProfile && !startupNote) {
     startupNote = "登录态已保留（持久 profile）· --fresh 临时会话 · --reset-profile 清空登录"

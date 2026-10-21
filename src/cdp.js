@@ -800,6 +800,40 @@ export class EdgeTab {
     return box
   }
 
+  /**
+   * 这个元素点击后会不会**开新窗口**？开了的话是哪个 URL？
+   *
+   * 以前只有一个 tab，所以一律把 target 改掉、把链接劫持到当前标签
+   * （_neutralizeTarget）—— 那是"单标签时代"的权宜之计。
+   * 现在有标签页了，真浏览器的做法是**开成新标签页**。
+   *
+   * 判据要覆盖两种写法：
+   *   · 锚点自带 target="_blank"
+   *   · 页面用 <base target="_blank"> 全局指定（此时锚点上的 target 是空的）
+   *
+   * @returns {{newWindow:boolean, url:string|null}}
+   */
+  async probeNewWindow(idx) {
+    return this.evalJs(`(() => {
+      const el = window.__etuiEls && window.__etuiEls[${idx}]
+      if (!el) return { newWindow: false, url: null }
+      const a = (el.tagName === 'A') ? el : (el.closest && el.closest('a'))
+      if (!a) return { newWindow: false, url: null }
+      const href = a.getAttribute('href')
+      if (!href) return { newWindow: false, url: null }
+      if (href.startsWith('#') || href.startsWith('javascript:')) return { newWindow: false, url: null }
+      let target = String(a.getAttribute('target') || '').trim().toLowerCase()
+      if (!target) {
+        const b = document.querySelector('base[target]')
+        target = String((b && b.getAttribute('target')) || '').trim().toLowerCase()
+      }
+      if (target === '' || target === '_self') return { newWindow: false, url: null }
+      let abs = null
+      try { abs = new URL(href, location.href).href } catch {}
+      return { newWindow: !!abs, url: abs }
+    })()`)
+  }
+
   /** 把选中元素（及其 <a> / <base>）的 target 临时改成本标签 */
   _neutralizeTarget(idx) {
     return `(() => {
@@ -1443,10 +1477,10 @@ export async function launchEdge({ width = 1280, height = 900, profileDir = null
     }
   } catch { bconn = null }
 
-  /** 新开一个页面 target，返回它自己的 EdgeTab（已 enable + 设好视口） */
-  const newPage = async () => {
-    if (!bconn) throw new Error("浏览器级连接不可用，无法新建标签页")
-    const { targetId: tid } = await bconn.send("Target.createTarget", { url: "about:blank" })
+  // ── 接管一个已经存在的页面 target ──
+  // 自己开的标签页、以及站点自己开出来的窗口（target=_blank / window.open）
+  // 都走这一条：拿到 targetId → 找到它的调试地址 → 建一条独立的 CDP 连接。
+  const attachTarget = async (tid) => {
     let u = null
     for (let i = 0; i < 50; i++) {
       try {
@@ -1457,10 +1491,7 @@ export async function launchEdge({ width = 1280, height = 900, profileDir = null
       } catch {}
       await new Promise((r) => setTimeout(r, 100))
     }
-    if (!u) {
-      try { await bconn.send("Target.closeTarget", { targetId: tid }) } catch {}
-      throw new Error("新建标签页失败：拿不到页面调试地址")
-    }
+    if (!u) throw new Error("接管标签页失败：拿不到页面调试地址")
     const ws2 = new WebSocket(u)
     await new Promise((resolve, reject) => {
       ws2.addEventListener("open", resolve)
@@ -1473,10 +1504,48 @@ export async function launchEdge({ width = 1280, height = 900, profileDir = null
     return { tab: t, targetId: tid, conn: conn2 }
   }
 
+  /** 新开一个页面 target，返回它自己的 EdgeTab（已 enable + 设好视口） */
+  const newPage = async () => {
+    if (!bconn) throw new Error("浏览器级连接不可用，无法新建标签页")
+    const { targetId: tid } = await bconn.send("Target.createTarget", { url: "about:blank" })
+    try {
+      return await attachTarget(tid)
+    } catch (e) {
+      try { await bconn.send("Target.closeTarget", { targetId: tid }) } catch {}
+      throw e
+    }
+  }
+
   /** 关闭一个页面 target */
   const closePage = async (tid) => {
     if (!bconn || !tid) return
     try { await bconn.send("Target.closeTarget", { targetId: tid }) } catch {}
+  }
+
+  // ── 目标发现：站点自己开出来的窗口 ──
+  //
+  // 真浏览器里，点 target=_blank 的链接、或者页面调 window.open()，
+  // 都会**开一个新标签页**。以前只有一个 tab，只能把这些链接劫持到当前标签
+  // （_neutralizeTarget）—— 那时候是没办法，现在有了标签页就不该再劫持。
+  //
+  // 怎么把「站点开的窗口」和「我们自己开的标签页」区分开？靠两个判据：
+  //   · 自己用 Target.createTarget 开的，**没有 openerId**（它不是从某个页面开出来的）
+  //   · 站点用 rel=noopener 开的，也没有 openerId，但**自带 http(s) 地址**
+  // 所以规则是：有 openerId 就收编；没有 openerId 就看地址是不是 http(s)。
+  // 顺带排除 Edge 自己的内部页（edge://…、chrome://…）和扩展后台页。
+  const newTargetHooks = []
+  if (bconn) {
+    try { await bconn.send("Target.setDiscoverTargets", { discover: true }) } catch {}
+    bconn.on("Target.targetCreated", (p) => {
+      const ti = p?.targetInfo
+      if (!ti || ti.type !== "page") return
+      const url = String(ti.url || "")
+      const isOurs = url === "about:blank" && !ti.openerId
+      if (isOurs) return
+      const isSiteWindow = !!ti.openerId || /^https?:/i.test(url)
+      if (!isSiteWindow) return
+      for (const fn of newTargetHooks) { try { fn(ti) } catch {} }
+    })
   }
 
   const quit = () => {
@@ -1495,5 +1564,9 @@ export async function launchEdge({ width = 1280, height = 900, profileDir = null
     try { tab.close() } catch {}
     cleanup()
   }
-  return { tab, targetId, port, profileDir, quit, newPage, closePage }
+  return {
+    tab, targetId, port, profileDir, quit, newPage, closePage, attachTarget,
+    // 注册"站点自己开出了窗口"的回调（window.open 等）
+    onNewTarget: (fn) => { newTargetHooks.push(fn) },
+  }
 }

@@ -18,7 +18,6 @@ process.env.EDGE_TUI_NO_MAIN = "1"
 
 import { launchEdge } from "../src/cdp.js"
 import { createKeyDecoder } from "../src/keys.js"
-
 let pass = 0, fail = 0
 const ok = (name, cond, extra = "") => {
   if (cond) { pass++; console.log(`  ✓ ${name}${extra ? "  " + extra : ""}`) }
@@ -229,6 +228,43 @@ console.log("\n── ④ 按键真的能切标签页 ──")
   __test.handleKey({ name: "char", sequence: "x" })
   ok("普通字符照常进入输入框", __test.state().inputValue === "x",
     JSON.stringify(__test.state().inputValue))
+}
+
+// ── ⑤ target=_blank 的链接要开成新标签页 ──
+console.log("\n── ⑤ target=_blank → 新标签页 ──")
+{
+  const edge = await launchEdge({ width: 1000, height: 700 })
+  try {
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>开窗测试</title></head>
+<body><a id="plain" href="https://example.com/plain">普通链接</a>
+<a id="blank" href="https://example.com/child" target="_blank">新窗口链接</a>
+</body></html>`
+    const tab = edge.tab
+    await tab.navigate("data:text/html;charset=utf-8," + encodeURIComponent(html), { timeoutMs: 8000 })
+    const els = await tab.enumerateInteractive(1000, 700)
+    // 元素清单里没有 href 字段（浏览器侧的 __etuiEls 才有），
+    // 所以按可见文字定位。
+    const plainIdx = els.findIndex((e) => e.text === "普通链接")
+    const blankIdx = els.findIndex((e) => e.text === "新窗口链接")
+    ok("找到了两个链接", plainIdx >= 0 && blankIdx >= 0, `plain=${plainIdx} blank=${blankIdx}`)
+
+    const p1 = await tab.probeNewWindow(plainIdx)
+    ok("普通链接不判为新窗口", p1.newWindow === false, JSON.stringify(p1))
+
+    const p2 = await tab.probeNewWindow(blankIdx)
+    ok("target=_blank 的链接判为新窗口", p2.newWindow === true, JSON.stringify(p2))
+    ok("给出的是绝对地址", p2.url === "https://example.com/child", String(p2.url))
+
+    // 收编站点自己开出来的窗口：确认 attachTarget 能接管一个已存在的 target
+    const created = await edge.newPage()
+    ok("能新建并接管一个标签页", !!created.tab && !!created.targetId)
+    await edge.closePage(created.targetId)
+  } catch (e) {
+    fail++
+    console.log(`  ✗ 异常：${e?.stack || e}`)
+  } finally {
+    try { await edge.quit() } catch {}
+  }
 }
 
 console.log(`\n══ 结果：${pass} 通过 / ${fail} 失败 ══`)
