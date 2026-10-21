@@ -10,18 +10,15 @@ jobs:
   test:
     # The browser is a hard Windows dependency: src/cdp.js looks for
     # msedge.exe at fixed Program Files paths, and the test suites drive a
-    # real headless Edge over CDP.
+    # real headless Edge over CDP. The Windows runner image ships Edge.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-
-      - name: Install Edge
-        uses: microsoft/setup-msedge@v2
 
       - name: Show the browser under test
         shell: pwsh
@@ -32,7 +29,7 @@ jobs:
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $edge) { throw "msedge.exe not found on this runner" }
           Write-Host "Edge: $edge"
-          & $edge --version
+          (Get-Item $edge).VersionInfo.ProductVersion
 
       - run: npm ci
 
