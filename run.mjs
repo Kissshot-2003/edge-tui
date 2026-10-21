@@ -14,6 +14,7 @@ import { typeIntoField as typeIntoFieldRaw, backspaceField as backspaceFieldRaw,
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { spawn } from "node:child_process"
 
 // ── 网格单元尺寸 ──
 // 终端字符宽高比通常约 1:2，4x8 能出较方正的图像。
@@ -741,7 +742,7 @@ const HELP_ITEMS = [
   ["T  或  Ctrl+Shift+T", "重开最近关闭的标签页"],
   ["[ / ]  或  Ctrl+Tab", "上一个 / 下一个标签页"],
   ["1…9 / 0  或  Ctrl+1…9", "直跳到第 n 个标签页"],
-  [":", "命令模式：/reload /back /forward /text /image /mouse …"],
+  [":", "命令模式：/reload /back /forward /text /image /copy /pdf /dl /mouse …"],
   ["?", "开关本帮助"],
   ["q / Ctrl+C", "退出"],
 ]
@@ -1681,6 +1682,17 @@ async function goto(inp) {
         statusKind = "ok"
         status = `下载目录：${DOWNLOAD_DIR}`
         return paint()
+      case "copy": case "cp":
+        if (copyToClipboard(curUrl)) {
+          statusKind = "ok"
+          status = `已复制网址：${curUrl}`
+        } else {
+          statusKind = "err"
+          status = "复制失败：系统里找不到剪贴板命令（clip / pbcopy / xclip）"
+        }
+        return paint()
+      case "pdf": case "print":
+        return saveAsPdf()
       case "mouse":
         mouseOn = !mouseOn
         process.stdout.write(mouseOn ? MOUSE_ON : MOUSE_OFF)
@@ -1972,6 +1984,58 @@ function reload() {
   status = "正在刷新…"
   elsCacheKey = null
   capture(true).catch(() => {})
+}
+
+/**
+ * 复制到系统剪贴板。
+ *
+ * 真浏览器里地址栏的网址是可以直接复制的；终端里鼠标选中会被鼠标上报抢走，
+ * 所以这里给一条明确的通路。
+ *
+ * 各平台用的命令不一样：Windows 是 clip，macOS 是 pbcopy，
+ * Linux 上 xclip / wl-copy / xsel 都有可能（挨个试）。
+ */
+function copyToClipboard(text) {
+  const t = String(text || "")
+  if (!t) return false
+  const candidates = process.platform === "win32"
+    ? [["clip", []]]
+    : process.platform === "darwin"
+      ? [["pbcopy", []]]
+      : [["wl-copy", []], ["xclip", ["-selection", "clipboard"]], ["xsel", ["--clipboard", "--input"]]]
+  for (const [cmd, args] of candidates) {
+    try {
+      const c = spawn(cmd, args, { stdio: ["pipe", "ignore", "ignore"], windowsHide: true })
+      c.on("error", () => {})
+      c.stdin.write(t)
+      c.stdin.end()
+      return true
+    } catch { /* 试下一个 */ }
+  }
+  return false
+}
+
+/** 存成 PDF（真浏览器的「打印 → 存为 PDF」） */
+async function saveAsPdf() {
+  try {
+    statusKind = "busy"
+    status = "正在生成 PDF…"
+    paint()
+    const data = await tab.printToPdf()
+    const dir = path.join(DATA_DIR, "pdf")
+    fs.mkdirSync(dir, { recursive: true })
+    const base = (title || safeHost(curUrl) || "page")
+      .replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim().slice(0, 60)
+    const file = path.join(dir, `${base}.pdf`)
+    fs.writeFileSync(file, Buffer.from(data, "base64"))
+    statusKind = "ok"
+    status = `已存为 PDF → ${file}`
+    paint()
+  } catch (e) {
+    statusKind = "err"
+    status = `生成 PDF 失败：${String(e?.message || e).slice(0, 46)}`
+    paint()
+  }
 }
 
 /**

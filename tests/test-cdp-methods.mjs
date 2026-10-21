@@ -35,6 +35,7 @@ const METHODS = [
   ["Page.captureScreenshot", { format: "png" }],
   ["Page.getNavigationHistory", {}],
   ["Page.navigateToHistoryEntry", { entryId: 0 }],
+  ["Page.printToPDF", { printBackground: true }],
   ["Page.setInterceptFileChooserDialog", { enabled: false }],
   ["Page.handleJavaScriptDialog", { accept: true }],
   ["Emulation.setDeviceMetricsOverride", { width: 800, height: 600, deviceScaleFactor: 1, mobile: false }],

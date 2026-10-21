@@ -364,10 +364,12 @@ Browsh 靠 `tcell` 直接拿鼠标事件。我们没有 native 依赖，自己�
 命令模式（`:` 或 `o` 下以 `/` 开头）：
 
 ```
-/reload  /back  /forward  /top  /end  /bm  /his  /mouse  /quit
+/reload  /back  /forward  /top  /end  /bm  /his  /copy  /pdf  /dl  /mouse  /quit
 ```
 
-`/bm` 书签列表 · `/his` 历史列表（`↑↓` 选择、`Enter` 打开、`x` 删除、`Esc` 退出）。
+`/bm` 书签列表 · `/his` 历史列表（`↑↓` 选择、`Enter` 打开、`x` 删除、`Esc` 退出）·
+`/copy` 复制当前网址到系统剪贴板 · `/pdf` 把当前页存成 PDF（存到
+`%LOCALAPPDATA%\edge-tui\pdf`）· `/dl` 显示下载目录。
 
 ## 像常见浏览器：登录态、页内查找、书签、历史
 
@@ -375,6 +377,8 @@ Browsh 靠 `tcell` 直接拿鼠标事件。我们没有 native 依赖，自己�
 |---|---|---|
 | **登录态保留** | 默认开启 | 持久 profile（`%LOCALAPPDATA%\edge-tui\profile`）：Cookie/LocalStorage 跨会话保留，登录一次以后还在。退出时先 `Browser.close` 优雅关闭再杀进程树 —— Cookie 是内存态，强杀会丢（localStorage 走写前日志不受影响，症状极具迷惑性） |
 | **下载** | 默认开启 | 下载目录 `%LOCALAPPDATA%\edge-tui\downloads`；点下载链接会真的存下来，状态栏报出文件名和落盘路径。headless Chrome 默认会**取消**下载，不显式开是不行的 |
+| **存成 PDF** | `/pdf` | 把当前页存成 PDF（`%LOCALAPPDATA%\edge-tui\pdf`），状态栏报出路径 |
+| **复制网址** | `/copy` | 复制当前网址到系统剪贴板（终端里鼠标选中会被鼠标上报抢走，所以给一条明确的通路） |
 | **页内查找** | `/` 进入，`Enter` 定位，`n` / `N` 跳转，`Esc` 取消高亮 | 纯内存：在已提取的排版行上匹配（大小写不敏感），命中行铺底色、当前命中更亮。不碰浏览器、不重新抓页 |
 | **书签** | `B` 收藏当前页，`/bm` 查看 | 按地址去重；存 `%LOCALAPPDATA%\edge-tui\bookmarks.json` |
 | **历史** | 自动记录，`/his` 查看 | 新→旧，连续同一地址去重，上限 1000 条；存 `%LOCALAPPDATA%\edge-tui\history.json` |

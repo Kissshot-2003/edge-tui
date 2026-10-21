@@ -554,9 +554,10 @@ export const PAGE_META = `({
   scrollX: window.scrollX,
   innerH: window.innerHeight,
   innerW: window.innerWidth,
-  docH: document.documentElement.scrollHeight,
+  docH: (document.documentElement && document.documentElement.scrollHeight) || 0,
   scrollHost: (() => {
     const d = document.documentElement
+    if (!d) return 'window'
     if (d.scrollHeight - window.innerHeight > 8) return 'window'
     let best = null, over = 8
     for (const el of document.querySelectorAll('*')) {

@@ -314,7 +314,7 @@ export class EdgeTab {
     for (let i = 0; i < maxRounds && Date.now() - t0 < timeoutMs; i++) {
       let s
       try {
-        s = await this.evalJs("document.readyState + '|' + document.documentElement.scrollHeight")
+        s = await this.evalJs("(document.readyState || '') + '|' + ((document.documentElement && document.documentElement.scrollHeight) || 0)")
       } catch {
         await new Promise((r) => setTimeout(r, 100))
         continue
@@ -407,7 +407,24 @@ export class EdgeTab {
   }
 
   async pageInfo() {
-    return this.evalJs("({u: location.href, t: document.title, sh: document.documentElement.scrollHeight})")
+    // ⚠️ documentElement 在**页面正在跳转**的那一瞬间是 null
+    // （新文档还没建好，旧文档已经拆了）。不挡一下就是
+    // "Cannot read properties of null (reading 'scrollHeight')" ——
+    // 抓页正好撞上跳转时抛出，界面直接报错而不是降级。
+    return this.evalJs("({u: location.href, t: document.title, sh: (document.documentElement && document.documentElement.scrollHeight) || 0})")
+  }
+
+  /**
+   * 打印成 PDF（真浏览器的「打印 → 存为 PDF」）。
+   * 返回 base64 的 PDF 数据。
+   */
+  async printToPdf({ landscape = false } = {}) {
+    const { data } = await this.conn.send("Page.printToPDF", {
+      printBackground: true,
+      preferCSSPageSize: true,
+      landscape,
+    })
+    return data
   }
 
   /**
@@ -469,7 +486,7 @@ export class EdgeTab {
                  iw: el.clientWidth || window.innerWidth, host: 'el',
                  cls: (typeof el.className === 'string' ? el.className : '').slice(0, 40) }
       }
-      return { y: window.scrollY, sh: document.documentElement.scrollHeight,
+      return { y: window.scrollY, sh: (document.documentElement && document.documentElement.scrollHeight) || 0,
                ih: window.innerHeight, iw: window.innerWidth, host: 'window' }
     })()`)
   }

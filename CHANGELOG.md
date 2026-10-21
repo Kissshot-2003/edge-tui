@@ -12,6 +12,13 @@
   现在下载到 `%LOCALAPPDATA%\edge-tui\downloads`，状态栏报出文件名和落盘路径。
   ⚠️ 用的是 **Browser** 域的 `setDownloadBehavior`；`Page.setDownloadBehavior`
   **不存在**（和当初那个不存在的 `Page.goBack` 一个路数）。
+  新增 `tests/test-download.mjs`（6 条断言）：真落盘 · 文件名 · 内容完整 · 事件齐。
+- **存成 PDF**（`/pdf`）：真浏览器的「打印 → 存为 PDF」。CDP 的 `Page.printToPDF`，
+  存到 `%LOCALAPPDATA%\edge-tui\pdf`，状态栏报出路径。
+  新增 `tests/test-pdf.mjs`（4 条断言）：方法存在 · 返回合法 PDF（文件头 %PDF-）。
+- **复制网址**（`/copy`）：复制到系统剪贴板（Windows `clip` / macOS `pbcopy` /
+  Linux `wl-copy`·`xclip`·`xsel`）。终端里鼠标选中会被鼠标上报抢走，
+  所以需要一条明确的通路。
 - **Ctrl+点 / 中键点 → 新标签页**。SGR 鼠标协议的 Cb 字段本来就带着
   Shift/Alt/Ctrl 位，但解码时高位被丢掉了 —— 现在留着，真浏览器的中键/Ctrl+点
   开新标签页的行为就实现了。
@@ -67,6 +74,11 @@
 
 ### Fixed
 
+- **抓页正好撞上页面跳转时会抛异常**：`document.documentElement` 在新文档
+  还没建好、旧文档已经拆掉的那一瞬间是 `null`，而 `extract.js` / `cdp.js`
+  里有三处**没挡**就读它的 `scrollHeight` —— 结果是
+  "Cannot read properties of null (reading 'scrollHeight')"，
+  界面直接报错而不是降级。现在都挡了。
 - **后退 / 前进从来没生效过**。CDP 协议里**没有** `Page.goBack` / `Page.goForward`
   这两个方法（历史上就是这么写的），于是每次调用都报
   `'Page.goBack' wasn't found`，错误又被 `.catch()` 吞进状态栏 ——
