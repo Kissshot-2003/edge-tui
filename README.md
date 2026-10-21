@@ -948,6 +948,7 @@ node tests/test-imports.mjs          # 静态导入检查：抓「调用了但�
 node tests/test-cdp.mjs              # CDP 连通性冒烟
 node tests/test-tabs.mjs             # 多标签页：CDP 开/关页面 · 修饰键解码 · 各页状态隔离
 node tests/test-history.mjs           # 浏览器历史：后退/前进（含"加载失败后仍能回退"）
+node tests/test-cdp-methods.mjs       # CDP 方法名实证审计（防"调用了不存在的方法"）
 node tests/test-term.mjs             # ANSI 渲染器
 node tests/test-input.mjs            # 页面表单输入交互
 node tests/test-vp.mjs               # 视口与网格对齐

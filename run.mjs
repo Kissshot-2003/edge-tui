@@ -309,6 +309,27 @@ let currentTargetId = null  // 当前标签页在 CDP 里的 targetId（关页�
 const closedTabs = []       // 最近关闭的标签页（Ctrl+Shift+T 重开）
 const TAB_LIMIT = 12        // 标签页上限：每个标签页是一个真实的 Chromium 页面
 
+// 每个 URL 记住一次滚动位置（文字模式下的排版行号）。
+//
+// 为什么浏览器自己那套不够：浏览器会恢复**页面**的滚动位置，但文字模式是
+// 「整页排好版、挪行窗口」——用户看到的位置是**排版行号**，浏览器管不着。
+// 不自己记的话，「后退」回到上一页会直接跳回顶部，长页面上尤其明显。
+const scrollMemo = new Map()   // url → textRowOffset
+
+/** 记住当前页面的滚动位置（离开之前调用） */
+function rememberScroll() {
+  if (curUrl) scrollMemo.set(curUrl, textRowOffset)
+}
+
+/** 回到某个页面后恢复它的滚动位置 */
+function restoreScroll(url) {
+  const off = url ? scrollMemo.get(url) : null
+  if (off == null) return
+  const maxOff = Math.max(0, textTotalRows - PAGE_ROWS())
+  textRowOffset = Math.max(0, Math.min(maxOff, off))
+  rerenderText()
+}
+
 /** 把当前全局状态打包成某个标签页的快照 */
 function snapshotTabState() {
   return {
@@ -1561,6 +1582,7 @@ async function goto(inp) {
   lastVp = null   // 新页面重新设视口，确保布局按当前尺寸重算
   activeField = null
   pageEcho = ""
+  rememberScroll()   // 离开当前页前记住它的位置，回头（后退）时能恢复
   try {
     // navigate 现在是「有界等待」：它**不会**为了等 load 事件把我们卡住，
     // 返回的是"我等到什么程度"（ready / stable / timeout / error）。
@@ -2563,10 +2585,12 @@ function prevPage() {
   pageEcho = ""
   captureError = null
   elsCacheKey = null
+  rememberScroll()
   tab.history(-1)
-    .then((u) => capture(true).then(() => {
+    .then((u) => capture(false).then(() => {
       // 说清楚「退到哪一页了」—— 否则用户按了后退只看到状态栏变"就绪"，
       // 分不清是退回去了还是根本没反应。
+      restoreScroll(u)
       statusKind = "ok"
       status = `← 已返回 · ${u}`
       paint()
@@ -2583,8 +2607,10 @@ function nextPage() {
   pageEcho = ""
   captureError = null
   elsCacheKey = null
+  rememberScroll()
   tab.history(1)
-    .then((u) => capture(true).then(() => {
+    .then((u) => capture(false).then(() => {
+      restoreScroll(u)
       statusKind = "ok"
       status = `→ 已前进 · ${u}`
       paint()
@@ -3327,6 +3353,11 @@ export const __test = {
   // 直接驱动按键处理：验证「按 Ctrl+Tab 真的切了标签页」这一整条链路
   // （按键 → 解码 → handleKey → 切页），而不只是测切页函数本身。
   handleKey,
+  // 滚动位置记忆（后退/前进时恢复）
+  setScroll: (url, off) => { curUrl = url; textRowOffset = off; textTotalRows = 1000 },
+  scrollState: () => ({ url: curUrl, off: textRowOffset }),
+  rememberScroll,
+  restoreScroll,
   // ── 多标签页的测试钩子 ──
   // 用假的 tab 替身驱动标签逻辑（不开真浏览器）：
   // 切标签是纯内存操作，测它不需要真的开页面。

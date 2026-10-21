@@ -13,6 +13,9 @@
 //   ③ 退到头 / 进到头时给的是**人话**，不是 CDP 的方法名
 import { launchEdge } from "../src/cdp.js"
 
+// ⚠️ 必须在 import run.mjs **之前**设好，否则它会自己跑 main() 去启动浏览器
+process.env.EDGE_TUI_NO_MAIN = "1"
+
 const good = "data:text/html;charset=utf-8," + encodeURIComponent(
   "<!DOCTYPE html><html><head><meta charset='utf-8'><title>好页面</title></head><body><h1>好页面</h1></body></html>")
 const bad = "http://127.0.0.1:9/definitely-not-here"   // 连接被拒
@@ -57,6 +60,26 @@ try {
   for (let i = 0; i < 10 && !err; i++) { try { await tab.history(1) } catch (e) { err = e } }
   ok("进到头时给出人话提示", !!err && /没有更晚的页面/.test(err.message),
     err ? err.message : "（没有报错，异常）")
+
+  // ── 滚动位置记忆 ──
+  // 浏览器会恢复**页面**的滚动，但文字模式是按**排版行号**滚的 ——
+  // 那个行号得自己记，否则"后退"回来就跳回顶部（长页面上尤其明显）。
+  const { __test } = await import("../run.mjs")
+  __test.install({
+    tabLike: { id: "x" }, page: null, totalRows: 0,
+    termLike: { width: 80, height: 30, render() {}, clear() {}, destroy() {} },
+  })
+  __test.setScroll("https://a.test/", 42)
+  __test.rememberScroll()
+  __test.setScroll("https://b.test/", 0)
+  ok("离开后当前位置归零", __test.scrollState().off === 0)
+  __test.restoreScroll("https://a.test/")
+  ok("后退能恢复上一页的滚动位置", __test.scrollState().off === 42,
+    `off=${__test.scrollState().off}`)
+  __test.setScroll("https://c.test/", 0)
+  __test.restoreScroll("https://c.test/")
+  ok("没去过的页面不会乱恢复", __test.scrollState().off === 0,
+    `off=${__test.scrollState().off}`)
 
   console.log(`\n══ 结果：${pass} 通过 / ${fail} 失败 ══`)
 } catch (e) {
