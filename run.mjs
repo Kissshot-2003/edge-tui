@@ -1822,6 +1822,22 @@ function isPlainChar(key) {
   return key.name === "char" && key.sequence >= " " && !key.ctrl && !key.alt
 }
 
+/**
+ * 页面输入相关的异步操作：**出错要说出来**。
+ *
+ * 这些操作以前全是 `.catch(() => {})` —— 静默失败。
+ * 症状是「我按了 Ctrl+A / 方向键 / Home，没反应」，界面却毫无线索，
+ * 是最难自查的一类问题（和「'Page.goBack' wasn't found」一个路数：
+ * 错误被吞掉之后，只剩下"按了没反应"这个没法定位的现象）。
+ */
+function pageOp(promise, what) {
+  Promise.resolve(promise).catch((e) => {
+    statusKind = "err"
+    status = `${what}失败：${String(e?.message || e).slice(0, 46)}`
+    paint()
+  })
+}
+
 function handleKey(key) {
   if (mode === "pick") {
     if (key.name === "escape") {
@@ -1987,19 +2003,23 @@ function handleKey(key) {
           status = `已选：${v} · Esc 退出`
           paint()
           scheduleShot(320)
-        }).catch(() => {})
+        }).catch((e) => {
+          statusKind = "err"
+          status = `选择失败：${String(e?.message || e).slice(0, 46)}`
+          paint()
+        })
         return
       }
-      tab.pressArrow(key.name, key.shift ? 8 : 0).then(() => scheduleShot(320)).catch(() => {})
+      pageOp(tab.pressArrow(key.name, key.shift ? 8 : 0).then(() => scheduleShot(320)), "方向键")
       return
     }
     if (key.name === "left" || key.name === "right") {
-      tab.pressArrow(key.name, key.shift ? 8 : 0).then(() => scheduleShot(200)).catch(() => {})
+      pageOp(tab.pressArrow(key.name, key.shift ? 8 : 0).then(() => scheduleShot(200)), "方向键")
       return
     }
     // 编辑键：输入框内的 Home/End/Delete/翻页（传统浏览器里直接作用于焦点控件）
     if (/^(home|end|delete|pageup|pagedown)$/.test(key.name || "")) {
-      tab.pressEditKey(key.name).then(() => scheduleShot(200)).catch(() => {})
+      pageOp(tab.pressEditKey(key.name).then(() => scheduleShot(200)), "编辑键")
       return
     }
     // Ctrl 组合进页面（Ctrl+C 全局退出 / Ctrl+V 粘贴另有通道，不在这里）：
@@ -2007,7 +2027,7 @@ function handleKey(key) {
     if (key.ctrl && /^(a|z)$/.test(key.sequence || "")) {
       // ⚠️ pressCombo 要的是**字母本身**（"a"/"z"），不是 key.name
       // （key.name 是 "char"）—— 传错的话 pressCombo 查表查不到，直接静默返回。
-      tab.pressCombo(key.sequence, 2).then(() => scheduleShot(200)).catch(() => {})
+      pageOp(tab.pressCombo(key.sequence, 2).then(() => scheduleShot(200)), "Ctrl 组合键")
       return
     }
     // Tab：换到下一个控件（页面原生 Tab 顺序），换完按 data-etui-field 反查是谁，
@@ -2034,7 +2054,11 @@ function handleKey(key) {
           }
         } catch {}
         scheduleShot(220)
-      }).catch(() => {})
+      }).catch((e) => {
+        statusKind = "err"
+        status = `切换控件失败：${String(e?.message || e).slice(0, 46)}`
+        paint()
+      })
       return
     }
     if (isPlainChar(key)) {
