@@ -54,25 +54,39 @@ export function parseSgrMouse(buf, start = 0) {
 
 /**
  * 原始 Cb 编码 → 语义动作。
- * @returns {{kind:'click'|'release'|'wheelUp'|'wheelDown', button?:number, x:number, y:number}}
+ *
+ * SGR 的 Cb 字段还带着修饰键位，这里要**留着**：
+ * 真浏览器里 Ctrl+点 / 中键点 = 在新标签页打开，这个行为很常用。
+ * 以前解码时把高位直接丢掉了，于是只能收到"左键点击"，修饰键信息全丢了。
+ *
+ * Cb 位分配：bit0-1=按键(0左 1中 2右) bit2=Shift bit3=Alt bit4=Ctrl
+ *            bit5=移动 bit6=滚轮
+ *
+ * @returns {{kind:'click'|'release'|'wheelUp'|'wheelDown'|'move', button?:number,
+ *            x:number, y:number, ctrl?:boolean, alt?:boolean, shift?:boolean}}
  *          x / y 是 1 起的终端坐标，与 SGR 原文一致。
  */
 export function classifyMouse(ev) {
   if (!ev || ev.bad) return null
   const { cb, x, y, release } = ev
+  const mods = {
+    ctrl: (cb & 16) !== 0,
+    alt: (cb & 8) !== 0,
+    shift: (cb & 4) !== 0,
+  }
 
   // 第 6 位（64）表示滚轮。滚轮没有「抬起」事件，只有一次按下。
   if ((cb & 64) !== 0) {
-    return { kind: (cb & 1) === 0 ? "wheelUp" : "wheelDown", x, y }
+    return { kind: (cb & 1) === 0 ? "wheelUp" : "wheelDown", x, y, ...mods }
   }
   // 第 5 位（32）表示「按住移动」。我们只开了 1000h（不含移动上报），
   // 但某些终端/复用器会照发 —— 不识别的话，一次拖拽会被当成连续单击，
   // 在链接上拖一下就跳走好几个页面。
-  if ((cb & 32) !== 0) return { kind: "move", button: cb & 3, x, y }
+  if ((cb & 32) !== 0) return { kind: "move", button: cb & 3, x, y, ...mods }
 
   const button = cb & 3
-  if (release) return { kind: "release", button, x, y }
-  return { kind: "click", button, x, y }
+  if (release) return { kind: "release", button, x, y, ...mods }
+  return { kind: "click", button, x, y, ...mods }
 }
 
 /**

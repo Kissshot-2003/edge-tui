@@ -7,6 +7,16 @@
 
 ### Added
 
+- **下载**：headless Chrome 默认会**取消**下载 —— 不显式开
+  `Browser.setDownloadBehavior`，点下载链接什么都不会发生。
+  现在下载到 `%LOCALAPPDATA%\edge-tui\downloads`，状态栏报出文件名和落盘路径。
+  ⚠️ 用的是 **Browser** 域的 `setDownloadBehavior`；`Page.setDownloadBehavior`
+  **不存在**（和当初那个不存在的 `Page.goBack` 一个路数）。
+- **Ctrl+点 / 中键点 → 新标签页**。SGR 鼠标协议的 Cb 字段本来就带着
+  Shift/Alt/Ctrl 位，但解码时高位被丢掉了 —— 现在留着，真浏览器的中键/Ctrl+点
+  开新标签页的行为就实现了。
+- **终端标题**跟随当前页面标题（OSC 0/2）—— 任务栏、窗口列表、终端标签上都能看到。
+- **标签栏上的加载指示**：正在加载的标签前面挂个转圈。
 - **浏览器习惯键位**：`Ctrl+L` 聚焦地址栏（带出当前网址，打第一个字就替换）·
   `Ctrl+R` 刷新 · `Ctrl+F` 页内查找 · `Ctrl+D` 收藏。
 - **完整按键说明面板**：按 `?` 铺满整个页面区（25 条），j/k 翻页，
@@ -40,6 +50,10 @@
   按键→切页整条链路），40 条断言，已并入 `tests/run-all.mjs`。
 
 ### Changed
+
+- **默认就伪装 UA**（`--raw-ua` 可关）。headless 下必应返回的是精简版首页，
+  实测正文只剩 21 个字 —— 等于半个浏览器。真正的浏览器发的是普通 UA，
+  headless 才是那个异常，所以默认伪装、而不是让用户自己去发现这个开关。
 
 - **按键解码层支持修饰键**：
   - 新增 **CSI-u**（kitty 键盘协议 `ESC [ <code> ; <mods> u`）——

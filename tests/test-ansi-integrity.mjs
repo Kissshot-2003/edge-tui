@@ -18,12 +18,19 @@ child.on("close", () => {
   const s = buf.toString("binary")
   // 找出所有 CSI 序列（完整：ESC [ 参数 终字节）
   const seqs = s.match(/\x1b\[[0-9;?]*[A-Za-z]/g) || []
+  // OSC 序列（ESC ] … BEL 或 ST）**也是完整的转义序列** —— 终端标题就是用它设的
+  // （OSC 0;标题 BEL）。以前这个检查器只认 CSI，把合法的 OSC 当成了"残缺序列"。
+  const oscs = s.match(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g) || []
   // 把完整序列挖掉后，剩下的 ESC 就是「没被终结」的残缺序列
-  const stripped = s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
+  const stripped = s
+    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+
   const broken = stripped.match(/\x1b/g) || []
 
   console.log(`输出字节数: ${buf.length}`)
   console.log(`完整 CSI 序列: ${seqs.length}`)
+  console.log(`完整 OSC 序列: ${oscs.length}`)
   console.log(`残缺序列（未被终字节收尾的 ESC）: ${broken.length}`)
 
   // 真正要验证的：把合法 CSI 全部挖掉后，剩余文本里不该再有 ESC。

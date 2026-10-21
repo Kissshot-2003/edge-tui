@@ -801,7 +801,7 @@ export class EdgeTab {
   }
 
   /**
-   * 这个元素点击后会不会**开新窗口**？开了的话是哪个 URL？
+   * 这个元素是个链接吗？点击后会不会**开新窗口**？它的绝对地址是什么？
    *
    * 以前只有一个 tab，所以一律把 target 改掉、把链接劫持到当前标签
    * （_neutralizeTarget）—— 那是"单标签时代"的权宜之计。
@@ -810,6 +810,9 @@ export class EdgeTab {
    * 判据要覆盖两种写法：
    *   · 锚点自带 target="_blank"
    *   · 页面用 <base target="_blank"> 全局指定（此时锚点上的 target 是空的）
+   *
+   * url 字段**总是**给出绝对地址（只要这是个链接）——
+   * 中键点 / Ctrl+点要"不管 target 是什么都开新标签页"，那时需要的是地址。
    *
    * @returns {{newWindow:boolean, url:string|null}}
    */
@@ -822,15 +825,16 @@ export class EdgeTab {
       const href = a.getAttribute('href')
       if (!href) return { newWindow: false, url: null }
       if (href.startsWith('#') || href.startsWith('javascript:')) return { newWindow: false, url: null }
+      let abs = null
+      try { abs = new URL(href, location.href).href } catch {}
+      if (!abs) return { newWindow: false, url: null }
       let target = String(a.getAttribute('target') || '').trim().toLowerCase()
       if (!target) {
         const b = document.querySelector('base[target]')
         target = String((b && b.getAttribute('target')) || '').trim().toLowerCase()
       }
-      if (target === '' || target === '_self') return { newWindow: false, url: null }
-      let abs = null
-      try { abs = new URL(href, location.href).href } catch {}
-      return { newWindow: !!abs, url: abs }
+      const isNewWindow = target !== '' && target !== '_self'
+      return { newWindow: isNewWindow, url: abs }
     })()`)
   }
 
@@ -1354,7 +1358,7 @@ export class EdgeTab {
  * 下次启动还在 —— 这是「像常见浏览器」的第一块拼图（否则每个网站每次都要重新登录）。
  * 持久模式下退出只杀进程树，**绝不删目录**。
  */
-export async function launchEdge({ width = 1280, height = 900, profileDir = null, userAgent = null } = {}) {
+export async function launchEdge({ width = 1280, height = 900, profileDir = null, userAgent = null, downloadPath = null } = {}) {
   const exe = findEdge()
   // 是否临时 profile：决定退出时要不要删目录。持久 profile 删掉就是让用户重新登录。
   const tempProfile = !profileDir
@@ -1524,6 +1528,37 @@ export async function launchEdge({ width = 1280, height = 900, profileDir = null
 
   // ── 目标发现：站点自己开出来的窗口 ──
   //
+  // ── 下载 ──
+  //
+  // headless Chrome 默认**取消**下载：不设这个，点下载链接什么都不会发生
+  // （真浏览器里这是最基础的能力之一）。
+  //
+  // ⚠️ 用的是 **Browser** 域的 setDownloadBehavior —— `Page.setDownloadBehavior`
+  // **不存在**（和当初那个不存在的 `Page.goBack` 一个路数：名字看着很像，
+  // 报出来是 "'Page.setDownloadBehavior' wasn't found"）。
+  //
+  // 配套的 Browser.downloadWillBegin / Browser.downloadProgress 事件能给出
+  // 文件名和进度，交给上层报给用户。
+  const downloadHooks = []
+  if (bconn && downloadPath) {
+    try {
+      fs.mkdirSync(downloadPath, { recursive: true })
+      await bconn.send("Browser.setDownloadBehavior", {
+        behavior: "allow",
+        downloadPath,
+        eventsEnabled: true,
+      })
+    } catch { /* 没开成也不算致命：只是下载不了 */ }
+    bconn.on("Browser.downloadWillBegin", (p) => {
+      for (const fn of downloadHooks) { try { fn({ phase: "willBegin", ...p }) } catch {} }
+    })
+    bconn.on("Browser.downloadProgress", (p) => {
+      for (const fn of downloadHooks) { try { fn({ phase: "progress", ...p }) } catch {} }
+    })
+  }
+
+  // ── 目标发现：新开的页面（target=_blank / window.open）──
+  //
   // 真浏览器里，点 target=_blank 的链接、或者页面调 window.open()，
   // 都会**开一个新标签页**。以前只有一个 tab，只能把这些链接劫持到当前标签
   // （_neutralizeTarget）—— 那时候是没办法，现在有了标签页就不该再劫持。
@@ -1568,5 +1603,7 @@ export async function launchEdge({ width = 1280, height = 900, profileDir = null
     tab, targetId, port, profileDir, quit, newPage, closePage, attachTarget,
     // 注册"站点自己开出了窗口"的回调（window.open 等）
     onNewTarget: (fn) => { newTargetHooks.push(fn) },
+    // 注册下载进度回调
+    onDownload: (fn) => { downloadHooks.push(fn) },
   }
 }

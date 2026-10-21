@@ -46,10 +46,16 @@ const cleanMode = process.argv.includes("--clean")
 const debugMode = !!process.env.EDGE_TUI_DEBUG
 
 // --user-agent=XXX：伪装 UA。
-// headless 下部分站点会主动降级（必应返回精简版首页：无导航、无背景图），
-// 伪装成正常浏览器能换回完整版。默认不伪装。
-const userAgentArg =
-  (process.argv.find((a) => a.startsWith("--user-agent=")) || "").slice("--user-agent=".length) || null
+//
+// **默认就伪装**：headless 下部分站点会主动降级 —— 必应返回的是精简版首页
+// （无导航、无背景图），实测正文只剩 21 个字，等于半个浏览器。
+// 真正的浏览器发的是普通 UA，headless 才是那个异常。
+// `--raw-ua` 可以关掉伪装（排查站点行为差异时用）。
+const DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0"
+const userAgentArg = process.argv.includes("--raw-ua")
+  ? null
+  : ((process.argv.find((a) => a.startsWith("--user-agent=")) || "").slice("--user-agent=".length) || DEFAULT_UA)
 
 // ── 数据目录与持久化 ──
 // 默认持久 profile（登录态跨会话保留，像常见浏览器一样）；
@@ -58,6 +64,7 @@ const userAgentArg =
 const DATA_DIR = process.env.EDGE_TUI_DATA
   || path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "edge-tui")
 const PROFILE_DIR = path.join(DATA_DIR, "profile")
+const DOWNLOAD_DIR = path.join(DATA_DIR, "downloads")   // 下载目录（真浏览器也有这回事）
 const freshMode = process.argv.includes("--fresh")
 const resetProfileMode = process.argv.includes("--reset-profile")
 
@@ -459,12 +466,15 @@ async function adoptTab(created) {
  *
  * 比"让浏览器去开、我们再去接管"更稳：不用等浏览器的窗口事件，
  * 也不会漏掉被拦掉的弹窗。而且当前页面保持不动 —— 和真浏览器一致。
+ *
+ * force=true 时不管 target 是什么都开新标签页（中键点 / Ctrl+点）。
  */
-async function openInNewTabIfNeeded(idx) {
+async function openInNewTabIfNeeded(idx, force = false) {
   if (idx == null || idx < 0) return false
   try {
     const info = await tab.probeNewWindow(idx)
-    if (!info?.newWindow || !info.url) return false
+    if (!info?.url) return false
+    if (!force && !info.newWindow) return false
     await newTab(info.url)
     return true
   } catch {
@@ -849,6 +859,18 @@ function listPageRows(pc, pr) {
   return rows.slice(0, pr)
 }
 
+// ── 终端标题 ──
+//
+// 真浏览器会把窗口标题设成当前页面标题（标签页上直接看得到）。
+// 终端里对应的是 OSC 0/2 —— 任务栏、窗口列表、终端标签上都能看到。
+let lastTermTitle = ""
+function setTermTitle(t) {
+  const s = t ? `${String(t).replace(/[\x00-\x1f]/g, " ").slice(0, 60)} — edge-tui` : "edge-tui"
+  if (s === lastTermTitle) return
+  lastTermTitle = s
+  try { process.stdout.write(`\x1b]0;${s}\x07`) } catch {}
+}
+
 // ── 标签栏（参考 OpenCode V2 TUI：横向条 + 编号 + 当前项高亮）──
 //
 // 为什么用「编号」而不是「状态图标」做主指示：状态图标要靠颜色区分，
@@ -863,7 +885,9 @@ function tabStripRow() {
     const isActive = i === activeTab
     const num = (i + 1) % 10
     const raw = meta.title || meta.url || "新标签页"
-    const label = truncateByWidth(`[${num}] ${raw}`, 26)
+    // 正在加载的标签页前面挂个转圈（真浏览器标签上也有这个）
+    const spin = (isActive && busy) ? SPINNER[spinIdx] + " " : ""
+    const label = truncateByWidth(`${spin}[${num}] ${raw}`, 26)
     const cell = " " + label + " "
     const cw = strWidth(cell)
     if (used + cw > w) break
@@ -1225,6 +1249,7 @@ async function capture(resetScroll = false) {
     }
     // 标签栏要立刻反映当前页标题
     syncTabMeta()
+    setTermTitle(title)
     const sp = await myTab.scrollState()
     viewW = sp?.iw || vpW
     viewH = sp?.ih || vpH
@@ -1652,6 +1677,10 @@ async function goto(inp) {
         return paint()
       // 鼠标上报会接管终端的拖选行为。想复制屏幕文字时切掉它，
       // 比记住"按住 Shift"更直观（Shift 在很多终端里也有效，两条路都留着）。
+      case "dl": case "download": case "downloads":
+        statusKind = "ok"
+        status = `下载目录：${DOWNLOAD_DIR}`
+        return paint()
       case "mouse":
         mouseOn = !mouseOn
         process.stdout.write(mouseOn ? MOUSE_ON : MOUSE_OFF)
@@ -3050,7 +3079,9 @@ function handleMouse(m) {
     scrollPx((up ? -1 : 1) * (renderMode === "text" ? 3 * CELL_H : CELL_H * 2))
     return
   }
-  if (m.kind !== "click" || m.button !== 0) return
+  // 中键点 / Ctrl+点 = 在新标签页打开（真浏览器就这么做的）
+  const wantNewTab = m.button === 1 || m.ctrl === true
+  if (m.kind !== "click" || (m.button !== 0 && m.button !== 1)) return
 
   // 输入框 / 地址栏 / 命令 / 上传 / 查找模式正在编辑时，鼠标不参与，避免误触丢输入
   if (mode === "goto" || mode === "cmd" || mode === "upload" || mode === "find") return
@@ -3075,11 +3106,11 @@ function handleMouse(m) {
   // ⚠️ 返回值必须往上传：这是「发了不等」的异步链，抛错会走到
   // process.on("unhandledRejection")，那里直接 safeShutdown 退出程序 ——
   // 一次点击出意外就能把整个浏览器关掉。调用方统一挂 catch。
-  return activateAtRow(pageRow, x)
+  return activateAtRow(pageRow, x, wantNewTab)
 }
 
 /** 页面区内的一格 → 它属于哪个 DOM 块 → 执行对应动作 */
-async function activateAtRow(pageRow, col) {
+async function activateAtRow(pageRow, col, wantNewTab = false) {
   if (!textPage || !textRows?.rows) return
   const rows = textRows.rows
   let src = hitTestRows(rows, pageRow, col)
@@ -3100,7 +3131,7 @@ async function activateAtRow(pageRow, col) {
 
   if (src.kind === "fold") return toggleFoldById(src.foldId)
   if (src.kind === "field") return focusFieldBlock(src)
-  return openBlock(src)
+  return openBlock(src, wantNewTab)
 }
 
 /** 点折叠标记 = 就地展开/收起（和按 e 等价，只不过只影响你点的那一处） */
@@ -3165,7 +3196,7 @@ async function focusFieldBlock(f) {
  * 直接改 location 有些入口根本不生效（外链拦截、SPA 路由、埋点跳转）。
  * 只有在元素清单里找不到对应项时，才退回用 href 直接导航。
  */
-async function openBlock(src) {
+async function openBlock(src, wantNewTab = false) {
   const label = String(src.text || src.href || "元素").replace(/\s+/g, " ").trim().slice(0, 30)
   statusKind = "busy"
   status = `打开 ${label}…`
@@ -3179,6 +3210,23 @@ async function openBlock(src) {
         // （见 scrollToEl 的注释），所以点击前必须先把它带进视口。
         try { await tab.scrollElIntoView(m.index) } catch {}
         await new Promise((r) => setTimeout(r, 80))
+      }
+      // 中键点 / Ctrl+点 → 强制开成新标签页（真浏览器的行为）
+      if (wantNewTab) {
+        const opened = await openInNewTabIfNeeded(m.index, true)
+        if (opened) {
+          mode = "normal"
+          activeField = null
+          pageEcho = ""
+          focusInfo = null
+          pickInfo = null
+          lastVp = null
+          elsCacheKey = null
+          statusKind = "ok"
+          status = "已在新标签页打开"
+          paint()
+          return
+        }
       }
       // target=_blank 的链接 → 开成新标签页
       if (await openInNewTabIfNeeded(m.index)) {
@@ -3457,8 +3505,8 @@ async function main() {
   // dump 模式（排查/快照用）强制一次性 profile：别把探针访问写进真实历史
   const useTempProfile = freshMode || dumpMode
   edge = await launchEdge(useTempProfile
-    ? { width: initW, height: initH, userAgent: userAgentArg }
-    : { width: initW, height: initH, profileDir: PROFILE_DIR, userAgent: userAgentArg })
+    ? { width: initW, height: initH, userAgent: userAgentArg, downloadPath: DOWNLOAD_DIR }
+    : { width: initW, height: initH, profileDir: PROFILE_DIR, userAgent: userAgentArg, downloadPath: DOWNLOAD_DIR })
   tab = edge.tab
   currentTargetId = edge.targetId
   // 第一个标签页（启动时打开的那一页）
@@ -3472,6 +3520,27 @@ async function main() {
     edge.attachTarget(info.targetId)
       .then((created) => adoptTab(created))
       .catch((e) => logErr("adopt:", e?.stack || e))
+  })
+  // 下载：headless Chrome 默认会**取消**下载，所以下载行为是显式开的。
+  // 事件到了就把文件名和结果报给用户 —— 否则点了下载链接，界面一点动静都没有。
+  let downloading = ""
+  edge.onDownload?.((info) => {
+    if (info.phase === "willBegin") {
+      downloading = info.suggestedFilename || "文件"
+      statusKind = "busy"
+      status = `正在下载 ${downloading}…`
+      paint()
+    } else if (info.phase === "progress") {
+      if (info.state === "completed") {
+        statusKind = "ok"
+        status = `已下载 ${downloading} → ${info.filePath || DOWNLOAD_DIR}`
+        paint()
+      } else if (info.state === "canceled") {
+        statusKind = "err"
+        status = `下载被取消：${downloading}`
+        paint()
+      }
+    }
   })
   lastVp = PAGE_COLS() + "x" + PAGE_ROWS()
   if (!useTempProfile && !startupNote) {
