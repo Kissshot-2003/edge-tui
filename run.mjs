@@ -528,7 +528,11 @@ function closeTab(i) {
   if (tabStates.length === 0) {
     // 最后一个标签页也关了 —— 回到"空白起点"：再开一个新标签页。
     activeTab = 0
-    newTab().catch(() => {})
+    newTab().catch((e) => {
+      statusKind = "err"
+      status = `新建标签页失败：${String(e?.message || e).slice(0, 46)}`
+      paint()
+    })
     return
   }
   if (i === activeTab) {
@@ -1983,7 +1987,7 @@ function reload() {
   statusKind = "busy"
   status = "正在刷新…"
   elsCacheKey = null
-  capture(true).catch(() => {})
+  pageOp(capture(true), "刷新")
 }
 
 /**
@@ -2042,11 +2046,20 @@ async function saveAsPdf() {
  * 页面输入相关的异步操作：**出错要说出来**。
  *
  * 这些操作以前全是 `.catch(() => {})` —— 静默失败。
- * 症状是「我按了 Ctrl+A / 方向键 / Home，没反应」，界面却毫无线索，
+ * 症状是「我按了没反应」，界面却毫无线索，
  * 是最难自查的一类问题（和「'Page.goBack' wasn't found」一个路数：
  * 错误被吞掉之后，只剩下"按了没反应"这个没法定位的现象）。
  */
 function pageOp(promise, what) {
+  Promise.resolve(promise).catch((e) => {
+    statusKind = "err"
+    status = `${what}失败：${String(e?.message || e).slice(0, 46)}`
+    paint()
+  })
+}
+
+/** 同上，但用于标签页这类"失败了就该自己处理"的场合 */
+function tabOp(promise, what) {
   Promise.resolve(promise).catch((e) => {
     statusKind = "err"
     status = `${what}失败：${String(e?.message || e).slice(0, 46)}`
@@ -2348,8 +2361,8 @@ function handleKey(key) {
         // CSI-u 终端能区分（sequence 是 "T" / "t"）；
         // 只发原始字节的终端里 Ctrl+T 与 Ctrl+Shift+T 是同一个字节（0x14），
         // 那种情况下按 Ctrl+T 走"新建"（更常用），重开留给单键 "T"。
-        if (key.sequence === "T") { reopenTab().catch(() => {}); break }
-        if (key.sequence === "t") { newTab().catch(() => {}); break }
+        if (key.sequence === "T") { tabOp(reopenTab(), "重开标签页"); break }
+        if (key.sequence === "t") { tabOp(newTab(), "新建标签页"); break }
         if (key.sequence === "w" || key.sequence === "W") { closeTab(activeTab); break }
         // 浏览器习惯键位
         if (key.sequence === "l" || key.sequence === "L") { focusAddressBar(); break }
@@ -2402,8 +2415,8 @@ function handleKey(key) {
         case "?": case "？": toggleHelp(); break
         // 标签页退路：终端不报修饰键时（传统 conhost 不发 CSI-u），
         // 用单键操作，语义与 Ctrl+* 一致。
-        case "t": newTab().catch(() => {}); break
-        case "T": reopenTab().catch(() => {}); break
+        case "t": tabOp(newTab(), "新建标签页"); break
+        case "T": tabOp(reopenTab(), "重开标签页"); break
         case "w": closeTab(activeTab); break
         case "[": cycleTab(-1); break
         case "]": cycleTab(1); break
@@ -3003,7 +3016,7 @@ function pickDrag() {
     paint()
     elsCacheKey = null
     lastVp = null
-    capture(true).catch(() => {})
+    pageOp(capture(true), "抓页")
   }).catch((e) => {
     logErr("pickDrag:", e?.stack || e)
     statusKind = "err"
@@ -3063,7 +3076,7 @@ async function uploadFiles(raw) {
   }
   paint()
   elsCacheKey = null
-  await capture(true).catch(() => {})
+  await pageOp(capture(true), "抓页")
 }
 
 // ── 元素清单模式：真实鼠标点击 ──
