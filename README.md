@@ -14,12 +14,16 @@ Edge 内核驱动的终端浏览器。用 CDP 控制 headless Edge，**把 DOM �
 ## 快速开始
 
 ```bash
+git clone https://github.com/Kissshot-2003/edge-tui.git
+cd edge-tui
 npm install
 npm start                       # 默认打开 cn.bing.com
 node run.mjs https://example.com
 node run.mjs "搜索关键词"        # 无点号/含空格 → 走必应搜索
 node run.mjs --image https://example.com   # 切回「整页截图降采样」模式
 ```
+
+需要本机装有 **Microsoft Edge**（`src/cdp.js` 直接找 `msedge.exe`），全程无 native 依赖，Node ≥ 18 即可。
 
 Windows 下双击 `启动.bat` 亦可。
 
