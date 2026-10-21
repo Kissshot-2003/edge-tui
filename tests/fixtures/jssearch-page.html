@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>JS 接管的搜索框（不在表单里）</title>
+<style>
+  body { font: 16px/1.6 sans-serif; margin: 24px; max-width: 900px; }
+  h1 { font-size: 20px; }
+  /* 站点把搜索框做成"裸 input + JS"，回车不会有任何隐式提交 ——
+     这正是「按了回车、搜索结果永远出不来」的那类页面。 */
+  #kw { width: 420px; height: 36px; font-size: 15px; }
+  .go { height: 36px; }
+</style>
+</head>
+<body>
+  <h1>JS 接管的搜索框（不在表单里）</h1>
+
+  <div role="search">
+    <label for="kw">站内搜索</label>
+    <input id="kw" name="q" type="search" placeholder="输入关键词"
+           aria-label="站内搜索框">
+    <button type="button" class="go" id="go">搜索</button>
+  </div>
+  <p id="out">（还没有搜索）</p>
+
+  <script>
+    // 故意不放进 <form>：回车没有任何默认行为，纯靠 JS 按钮驱动。
+    // 按钮也是 type=button，form.submit() 之类的兜底同样不存在。
+    document.getElementById('go').addEventListener('click', () => {
+      window.__jsSubmitted = document.getElementById('kw').value
+      document.getElementById('out').textContent = '已搜索：' + window.__jsSubmitted
+    })
+  </script>
+</body>
+</html>

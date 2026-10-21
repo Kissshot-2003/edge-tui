@@ -1,0 +1,63 @@
+{
+  "name": "edge-tui-browser",
+  "version": "1.4.0",
+  "description": "Edge 内核驱动的终端浏览器（真·文字模式：DOM 取字 + 媒体字符画 + 二维码无损直读 + 多标签页，自绘 ANSI，无 native 依赖）",
+  "main": "run.mjs",
+  "type": "module",
+  "bin": {
+    "edge-tui": "run.mjs"
+  },
+  "files": [
+    "run.mjs",
+    "src/",
+    "启动.bat",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node run.mjs",
+    "start:image": "node run.mjs --image",
+    "dump": "node run.mjs --dump",
+    "clean": "node run.mjs --clean",
+    "test": "node tests/run-all.mjs",
+    "test:offline": "node tests/run-all.mjs --no-live",
+    "test:cdp": "node tests/test-cdp.mjs",
+    "test:tabs": "node tests/test-tabs.mjs",
+    "test:term": "node tests/test-term.mjs",
+    "test:input": "node tests/test-input.mjs",
+    "test:vp": "node tests/test-vp.mjs",
+    "test:bench": "node tests/test-bench.mjs",
+    "test:theme": "node tests/test-theme.mjs",
+    "test:text-e2e": "node tests/test-textmode-e2e.mjs",
+    "test:text-picker": "node tests/test-textmode-picker.mjs",
+    "test:text-scroll": "node tests/test-textmode-scroll.mjs",
+    "test:overlay": "node tests/test-overlay-align.mjs",
+    "test:qr": "node tests/test-qr-scan.mjs",
+    "replay": "node tests/replay-dump.mjs"
+  },
+  "keywords": [
+    "tui",
+    "terminal",
+    "browser",
+    "cdp",
+    "ansi",
+    "edge",
+    "ascii-art",
+    "text-browser",
+    "qrcode",
+    "w3m",
+    "lynx",
+    "tabs"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4"
+  }
+}

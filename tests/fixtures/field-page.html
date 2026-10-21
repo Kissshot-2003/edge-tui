@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>表单控件测试页</title>
+<style>
+  body { font: 16px/1.6 sans-serif; margin: 24px; max-width: 900px; }
+  h1 { font-size: 20px; }
+  .row { margin: 14px 0; }
+  input[type=search] { width: 420px; height: 36px; font-size: 15px; }
+  textarea { width: 420px; height: 70px; }
+  select { width: 200px; height: 30px; }
+  /* 站点常见的「为窄视口藏起来的导航」—— 用来确认它不会被当成表单控件 */
+  .hidden-nav { display: none; }
+</style>
+</head>
+<body>
+  <h1>表单控件测试页</h1>
+
+  <!-- 搜索框 + 相邻的提交按钮：应当被合并成同一行控件行 -->
+  <div class="row" role="search">
+    <form id="sf" action="javascript:void(0)" onsubmit="window.__submitted = document.getElementById('kw').value; return false;">
+      <label for="kw">站内搜索</label>
+      <input id="kw" name="q" type="search" placeholder="输入关键词"
+             aria-label="在此处输入你的搜索">
+      <input type="submit" value="搜索">
+    </form>
+  </div>
+
+  <!-- 普通输入框（有值） -->
+  <div class="row">
+    <label for="mail">邮箱</label>
+    <input id="mail" name="email" type="text" value="已有内容@example.com">
+  </div>
+
+  <!-- 密码框 -->
+  <div class="row">
+    <label for="pw">密码</label>
+    <input id="pw" name="password" type="password">
+  </div>
+
+  <!-- 文本域 -->
+  <div class="row">
+    <label for="msg">留言</label>
+    <textarea id="msg" name="message" placeholder="说点什么"></textarea>
+  </div>
+
+  <!-- 下拉框：它的 option 文字不应该各自单独成行 -->
+  <div class="row">
+    <label for="city">城市</label>
+    <select id="city" name="city">
+      <option>北京</option>
+      <option selected>上海</option>
+      <option>广州</option>
+      <option>深圳</option>
+    </select>
+  </div>
+
+  <!-- 禁用与只读 -->
+  <div class="row">
+    <label for="dis">禁用框</label>
+    <input id="dis" type="text" placeholder="不可用" disabled>
+    <label for="ro">只读框</label>
+    <input id="ro" type="text" value="只读内容" readonly>
+  </div>
+
+  <div class="hidden-nav">这段是给窄视口藏起来的导航文字，用来确认它只被当成折叠内容处理。</div>
+
+  <h2>正文标题</h2>
+  <p id="tail">控件下面的正文必须照常出现在文字流里，不能被表单挤掉。</p>
+</body>
+</html>

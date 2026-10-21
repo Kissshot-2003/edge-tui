@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>鼠标命中测试页</title>
+<style>
+  body { font: 16px/1.8 "Microsoft YaHei", sans-serif; max-width: 760px; margin: 24px; color: #222; }
+  h1 { font-size: 22px; }
+  .nav a { color: #0a58ca; text-decoration: none; }
+</style>
+</head>
+<body>
+  <h1>鼠标命中测试页</h1>
+
+  <!-- ① 同一行里并排的三个链接。
+       排版时它们会被「行内合并」拼成一行，鼠标必须能分清点的是哪一个 ——
+       `登录 注册 帮助中心` 这种导航行在真实站点里到处都是，
+       整行只记一个来源块的话，点「注册」会打开「登录」。 -->
+  <p class="nav">
+    <a href="#alpha" id="lnk-a" onclick="window.__hit=(window.__hit||[]).concat('A');return true">登录</a>
+    <a href="#beta" id="lnk-b" onclick="window.__hit=(window.__hit||[]).concat('B');return true">注册</a>
+    <a href="#gamma" id="lnk-c" onclick="window.__hit=(window.__hit||[]).concat('C');return true">帮助中心</a>
+  </p>
+
+  <!-- ② 两个**矩形完全相同**的按钮：枚举时会按矩形去重（只留第一个）。
+       历史的 enumerateInteractive 分两次查询 —— out 去重、__etuiEls 不去重 ——
+       两个数组下标就此错开，clickIndex(i) 点的是另一个元素。
+       它只在「页面上存在等尺寸元素」时发作，本地小页面永远测不出来。
+       ⚠️ 位置故意放在**靠前**：错位是从重复项之后开始累积的，
+       放在页尾的话只有数组长度会变、下标却仍然对得上，
+       这条断言就成了半残的守卫。 -->
+  <div style="position:relative;height:44px">
+    <button id="dup-1" style="position:absolute;left:0;top:0;width:140px;height:38px">叠一</button>
+    <button id="dup-2" style="position:absolute;left:0;top:0;width:140px;height:38px"
+            onclick="window.__dup=(window.__dup||0)+1">叠二</button>
+  </div>
+
+  <!-- ③ 控件行：输入框 + 提交按钮并排 -->
+  <form id="f" action="#submitted"
+        onsubmit="window.__submitted=document.getElementById('kw').value;return false">
+    <input id="kw" name="q" type="search" placeholder="站内搜索" aria-label="站内搜索">
+    <button id="go" type="submit">搜索</button>
+  </form>
+
+  <!-- ④ 折叠内容 + 展开控件 -->
+  <div id="hidden-1" style="display:none">
+    <p>这是被折叠起来的详细说明，关键词 EEE；折叠正文有长度下限（80 字），
+       因为标记行本身就要占一行，内容太短时用标记展示反而比正文更占地方，
+       所以这里要多写几句，让这段隐藏内容能通过提取器的长度门槛。</p>
+  </div>
+  <a href="#" id="toggle-1" role="button"
+     onclick="document.getElementById('hidden-1').style.display='block';this.style.display='none';return false">展开全文</a>
+
+  <!-- ⑤ target=_blank：文字浏览器只有一个标签页，点了必须在本标签打开。
+       不管它的话，Chromium 会在后台静默开一个新标签 —— 用户看到"点了没反应"。
+       实测必应顶部导航全是 _blank。 -->
+  <p><a href="#blank-target" id="lnk-blank" target="_blank"
+        onclick="window.__hit=(window.__hit||[]).concat('BLANK');return true">新窗口链接</a></p>
+
+  <p id="tail">页脚附近的可见文字，用作收尾。</p>
+</body>
+</html>

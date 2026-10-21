@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>折叠内容测试页</title>
+<style>
+  body { font: 16px/1.7 "Microsoft YaHei", sans-serif; max-width: 720px; margin: 24px; color: #222; }
+  h1 { font-size: 22px; }
+  .clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+</style>
+</head>
+<body>
+  <h1>折叠内容测试页</h1>
+  <p id="visible-1">这一段是页面上直接可见的正文，用来当对照组。</p>
+
+  <!-- ① display:none（后面紧跟「展开全文」）—— 必须被登记成折叠内容
+       注意：折叠正文必须超过长度下限（80 字），否则提取器会判定
+       「标记比内容还贵」而丢弃它（见 src/extract.js 的 MIN_FOLD_TEXT）。 -->
+  <div id="hidden-1" style="display:none">
+    <p>这是被 display:none 折叠起来的详细内容，第一段。</p>
+    <p>第二段里有一个关键词：隐藏段落关键词AAA。</p>
+    <p>折叠标记本身就要占一行，所以内容太短时（不足两行）标记反而比正文更占地方，</p>
+    <p>提取器因此给折叠正文设了长度下限 —— 这一段就是为了让夹具能通过它。</p>
+  </div>
+  <a href="#" id="toggle-1" role="button"
+     onclick="document.getElementById('hidden-1').style.display='block';this.style.display='none';return false">展开全文</a>
+
+  <!-- ② closed <details> —— 折叠标记应排在 summary 之后 -->
+  <details id="det-1">
+    <summary>常见问题：如何退款？</summary>
+    <p>这是 details 里的折叠答案，关键词是 BBB。答案正文需要足够长才能通过折叠内容的长度门槛，</p>
+    <p>因为折叠标记本身要占一行，太短的内容用标记展示反而更浪费空间，这里再补一句凑够长度。</p>
+  </details>
+
+  <!-- ③ line-clamp 视觉截断：文字本来就在 DOM 里，默认就该读到 -->
+  <div class="clamp" id="clamp-1">这是被 -webkit-line-clamp 截断的长文本，正文其实完整存在于 DOM 中，关键词 CCC。后面还有很多填充文字，用来让它真的溢出两行，从而触发视觉截断效果，这部分文字同样应该出现在文字浏览器里。</div>
+
+  <!-- ④ 没有任何展开控件的隐藏内容：应丢弃并计入 droppedHidden -->
+  <div style="display:none" id="orphan">这段隐藏内容找不到任何展开控件，应当被丢弃，关键词 DDD。它足够长以便通过折叠内容的长度门槛。</div>
+
+  <p id="visible-2">页脚附近的可见文字。</p>
+</body>
+</html>

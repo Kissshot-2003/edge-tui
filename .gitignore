@@ -1,0 +1,7 @@
+node_modules/
+# 调试产物：--dump 的原始字节流、临时快照、崩溃日志
+*.bin
+crash.log
+testout.txt
+_s.err
+demo-snapshot.txt
